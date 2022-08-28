@@ -11,7 +11,7 @@ Setup a VirtualBox shared folder between the ComNetsEmu VM and the repo director
 For reference, the shared direcotory in "my" VM is located at `/home/vagrant/bw-control-energy-saving`.
 
 ### Place all the needed files in the right directory
-From the shared folder, copy `mesh.py`, `qos_simple_switch_13.py` and `start_ryu.sh` in `/home/vagrant/comnetsemu`:
+From the shared folder, copy `mesh.py`, `utilities/qos_simple_switch_13.py` and `start_ryu.sh` in `/home/vagrant/comnetsemu`:
 
 `cd ~/bw-control-energy-saving`
 `cp mesh.py ~/comnetsemu`
