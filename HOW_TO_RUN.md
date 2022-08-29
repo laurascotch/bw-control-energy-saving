@@ -26,7 +26,7 @@ Make sure that `start_ryu.sh` is executable.
 |---|---|
 | VM | Run the network simulation<br>`cd ~/comnetsemu`<br>`sudo python3 mesh.py`<br>Wait for the mininet shell to appear |
 | VM | Try a `pingall` in the mininet shell |
-| Host | In a browser, check that `http://localhost:8080/v1.0/conf/switches` returns a list of 5 switches |
+| Host | In a browser, check that `http://localhost:8080/stats/switches` returns a list of 5 switches |
 | Host | Run `python3 initial_setup.py` which can be found in the repo |
 | Host | Now check that all the switches' interfaces are working at 10Mbps rate by running `python3 get_port_work_info.py` |
 

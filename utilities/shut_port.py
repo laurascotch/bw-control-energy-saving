@@ -1,26 +1,27 @@
 import requests
 import pycurl
 import json
-
-# curl -X POST -d '{"port_name": "s1-eth3", "max_rate": "10000000000", "queues": [{"max_rate": "1000000000"}]}' http://localhost:8080/qos/queue/0000000000000001
+# config: 1 la shutta, config:0 la rimette up
+# se si prova IPERF con PORTA SHUTTATA, ritorna exception ed esce da mininet :(
+# curl -X POST -d '{"dpid": 1, "port_no":1, "config": 1, "mask": 1}' http://localhost:8080/stats/portdesc/modify
 
 # ===== MODIFICA QUI =====
 switch_dpid = '1'
-port_no = '3'
-rate_mbps = 10
+port_no = '2'
+rate_mbps = 0
 # ========================
 
 dpid = switch_dpid.rjust(16, '0')
 port = f"s{switch_dpid}-eth{port_no}"
 rate = str(rate_mbps * 1000 * 1000)
 
-url = f"http://localhost:8080/qos/queue/{dpid}"
+url = f"http://localhost:8080/stats/portdesc/modify"
 #data = '{"port_name": "' + port + '", "max_rate": "10000000000", "queues": [{"max_rate": "' + rate + '"}]}'
 #print(data)
 
 crl = pycurl.Curl()
 
-data = json.dumps({"port_name": port , "max_rate": "10000000000", "queues": [{"max_rate": rate }]})
+data = json.dumps({"dpid": switch_dpid, "port_no":port_no, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
 
 crl.setopt(pycurl.POST, 1)
 crl.setopt(crl.URL, url)
