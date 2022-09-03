@@ -87,6 +87,7 @@ def testBandwidth():
     net.addLink( h7, s5, port2=3)#,  cls=TCLink, delay='10ms', bw=100 )
 
     #net.addLink(s1, s4, port1=4, port2=4, cls=TCLink, delay='1ms', bw=100)
+    #net.addLink(s3, s5)
 
     info( '*** Starting network\n' )
     net.build()
