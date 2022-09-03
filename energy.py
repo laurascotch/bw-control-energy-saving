@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 previous_pkt_count = {}     # keeps track of packets in flow, to understand whether there's traffic passing or not
 prev_port_pkt_count = {}
 power_per_intf = {'10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}     # link rate (Mbps) : power required (W)
+BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
 def get_all_switches():
@@ -290,15 +291,15 @@ if __name__ == "__main__":
             working_ports = get_working_ports(switches)
             change_link_rate(used_ports,working_ports)
             t_total_energy_required, t_switch_energy = get_instant_energy()
-            energy_per_time.append(t_total_energy_required)
+            energy_per_time.append(t_total_energy_required + BASE_POWER*5)
             
-            info = f"t({count}): {t_total_energy_required} W | working ports: {working_ports}"
+            info = f"t({count}): {t_total_energy_required+BASE_POWER*5} W | working ports: {working_ports}"
             switch_info = ""
             for s, w in t_switch_energy.items():
-                switch_info += f"| s{s}: {w} "
+                switch_info += f"| s{s}: {w+BASE_POWER} "
                 if s not in switch_energy_per_time.keys():
                     switch_energy_per_time[s] = []
-                switch_energy_per_time[s].append(w)
+                switch_energy_per_time[s].append(w + BASE_POWER)
             print(info)
             print(switch_info)
             count += 1
@@ -308,10 +309,13 @@ if __name__ == "__main__":
         pass
 
     fig, ax = plt.subplots()
+    ax.hlines(y=BASE_POWER, xmin=0, xmax=len(energy_per_time), color='r', linestyles='--', label='switch base power')
+    ax.hlines(y=BASE_POWER*len(switches), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
     ax.plot(range(len(energy_per_time)), energy_per_time, color='blue', label='total')
     switch_color = {'1':'steelblue', '2':'orchid', '3':'coral', '4':'gold', '5':'yellowgreen'}
     for s in switch_energy_per_time.keys():
         ax.plot(range(len(switch_energy_per_time[s])), switch_energy_per_time[s], color=switch_color[s], label=f's{s}')
     ax.set(xlabel='time unit', ylabel='Power (W)', title='Power required by all switches in network over time')
     plt.legend(loc="upper left")
+    ax.set_ylim(ymin=0)
     plt.show()

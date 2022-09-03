@@ -1,239 +1,351 @@
-# Copyright (C) 2016 Li Cheng BUPT www.muzixing.com.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 from ryu.base import app_manager
+from ryu.controller import mac_to_port
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, DEAD_DISPATCHER
-from ryu.controller.handler import MAIN_DISPATCHER, HANDSHAKE_DISPATCHER
+from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
-from ryu.ofproto import ether
+from ryu.lib.mac import haddr_to_bin
 from ryu.lib.packet import packet
-from ryu.lib.packet import ethernet
 from ryu.lib.packet import arp
+from ryu.lib.packet import ethernet
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import ipv6
-from ryu import utils
+from ryu.lib.packet import ether_types
+from ryu.lib import mac, ip
+from ryu.topology.api import get_switch, get_link
+from ryu.app.wsgi import ControllerBase
+from ryu.topology import event
 
+from collections import defaultdict
+from operator import itemgetter
 
-class MULTIPATH_13(app_manager.RyuApp):
+import os
+import random
+import time
+
+# Cisco Reference bandwidth = 1 Gbps
+REFERENCE_BW = 10000000
+
+DEFAULT_BW = 10000000
+
+MAX_PATHS = 2
+
+class ProjectController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
-        super(MULTIPATH_13, self).__init__(*args, **kwargs)
+        super(ProjectController, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
-        self.datapaths = {}
-        self.FLAGS = True
+        self.topology_api_app = self
+        self.datapath_list = {}
+        self.arp_table = {}
+        self.switches = []
+        self.hosts = {}
+        self.multipath_group_ids = {}
+        self.group_ids = []
+        self.adjacency = defaultdict(dict)
+        self.bandwidths = defaultdict(lambda: defaultdict(lambda: DEFAULT_BW))
 
-    @set_ev_cls(
-        ofp_event.EventOFPErrorMsg,
-        [HANDSHAKE_DISPATCHER, CONFIG_DISPATCHER, MAIN_DISPATCHER])
-    def error_msg_handler(self, ev):
-        msg = ev.msg
-        self.logger.debug('OFPErrorMsg received: type=0x%02x code=0x%02x '
-                          'message=%s', msg.type, msg.code,
-                          utils.hex_array(msg.data))
+    def get_paths(self, src, dst):
+        '''
+        Get all paths from src to dst using DFS algorithm    
+        '''
+        if src == dst:
+            # host target is on the same switch
+            return [[src]]
+        paths = []
+        stack = [(src, [src])]
+        while stack:
+            (node, path) = stack.pop()
+            for next in set(self.adjacency[node].keys()) - set(path):
+                if next is dst:
+                    paths.append(path + [next])
+                else:
+                    stack.append((next, path + [next]))
+        print("Available paths from ", src, " to ", dst, " : ", paths)
+        return paths
 
-    @set_ev_cls(ofp_event.EventOFPStateChange,
-                [MAIN_DISPATCHER, DEAD_DISPATCHER])
-    def _state_change_handler(self, ev):
-        datapath = ev.datapath
-        if ev.state == MAIN_DISPATCHER:
-            if not datapath.id in self.datapaths:
-                self.logger.debug('register datapath: %016x', datapath.id)
-                self.datapaths[datapath.id] = datapath
-        elif ev.state == DEAD_DISPATCHER:
-            if datapath.id in self.datapaths:
-                self.logger.debug('unregister datapath: %016x', datapath.id)
-                del self.datapaths[datapath.id]
+    def get_link_cost(self, s1, s2):
+        '''
+        Get the link cost between two switches 
+        '''
+        e1 = self.adjacency[s1][s2]
+        e2 = self.adjacency[s2][s1]
+        bl = min(self.bandwidths[s1][e1], self.bandwidths[s2][e2])
+        ew = REFERENCE_BW/bl
+        return ew
 
-    @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
-    def switch_features_handler(self, ev):
-        datapath = ev.msg.datapath
-        dpid = datapath.id
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
+    def get_path_cost(self, path):
+        '''
+        Get the path cost
+        '''
+        cost = 0
+        for i in range(len(path) - 1):
+            cost += self.get_link_cost(path[i], path[i+1])
+        return cost
 
-        # install table-miss flow entry
-        match = parser.OFPMatch()
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                          ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, 0, match, actions)
-        self.logger.info("switch:%s connected", dpid)
+    def get_optimal_paths(self, src, dst):
+        '''
+        Get the n-most optimal paths according to MAX_PATHS
+        '''
+        paths = self.get_paths(src, dst)
+        paths_count = len(paths) if len(
+            paths) < MAX_PATHS else MAX_PATHS
+        return sorted(paths, key=lambda x: self.get_path_cost(x))[0:(paths_count)]
 
-    def add_flow(self, datapath, hard_timeout, priority, match, actions):
+    def add_ports_to_paths(self, paths, first_port, last_port):
+        '''
+        Add the ports that connects the switches for all paths
+        '''
+        paths_p = []
+        for path in paths:
+            p = {}
+            in_port = first_port
+            for s1, s2 in zip(path[:-1], path[1:]):
+                out_port = self.adjacency[s1][s2]
+                p[s1] = (in_port, out_port)
+                in_port = self.adjacency[s2][s1]
+            p[path[-1]] = (in_port, last_port)
+            paths_p.append(p)
+        return paths_p
+
+    def generate_openflow_gid(self):
+        '''
+        Returns a random OpenFlow group id
+        '''
+        n = random.randint(0, 2**32)
+        while n in self.group_ids:
+            n = random.randint(0, 2**32)
+        return n
+
+
+    def install_paths(self, src, first_port, dst, last_port, ip_src, ip_dst):
+        computation_start = time.time()
+        paths = self.get_optimal_paths(src, dst)
+        pw = []
+        for path in paths:
+            pw.append(self.get_path_cost(path))
+            print(path, "cost = ", pw[len(pw) - 1])
+        sum_of_pw = sum(pw) * 1.0
+        paths_with_ports = self.add_ports_to_paths(paths, first_port, last_port)
+        switches_in_paths = set().union(*paths)
+
+        for node in switches_in_paths:
+
+            dp = self.datapath_list[node]
+            ofp = dp.ofproto
+            ofp_parser = dp.ofproto_parser
+
+            ports = defaultdict(list)
+            actions = []
+            i = 0
+
+            for path in paths_with_ports:
+                if node in path:
+                    in_port = path[node][0]
+                    out_port = path[node][1]
+                    if (out_port, pw[i]) not in ports[in_port]:
+                        ports[in_port].append((out_port, pw[i]))
+                i += 1
+
+            for in_port in ports:
+
+                match_ip = ofp_parser.OFPMatch(
+                    eth_type=0x0800, 
+                    ipv4_src=ip_src, 
+                    ipv4_dst=ip_dst
+                )
+                match_arp = ofp_parser.OFPMatch(
+                    eth_type=0x0806, 
+                    arp_spa=ip_src, 
+                    arp_tpa=ip_dst
+                )
+
+                out_ports = ports[in_port]
+                # print(out_ports )
+
+                if len(out_ports) > 1:
+                    group_id = None
+                    group_new = False
+
+                    if (node, src, dst) not in self.multipath_group_ids:
+                        group_new = True
+                        self.multipath_group_ids[
+                            node, src, dst] = self.generate_openflow_gid()
+                    group_id = self.multipath_group_ids[node, src, dst]
+
+                    buckets = []
+                    # print("node at ",node," out ports : ",out_ports)
+                    for port, weight in out_ports:
+                        bucket_weight = int(round((1 - weight/sum_of_pw) * 10))
+                        bucket_action = [ofp_parser.OFPActionOutput(port)]
+                        buckets.append(
+                            ofp_parser.OFPBucket(
+                                weight=bucket_weight,
+                                watch_port=port,
+                                watch_group=ofp.OFPG_ANY,
+                                actions=bucket_action
+                            )
+                        )
+
+                    if group_new:
+                        req = ofp_parser.OFPGroupMod(
+                            dp, ofp.OFPGC_ADD, ofp.OFPGT_SELECT, group_id,
+                            buckets
+                        )
+                        dp.send_msg(req)
+                    else:
+                        req = ofp_parser.OFPGroupMod(
+                            dp, ofp.OFPGC_MODIFY, ofp.OFPGT_SELECT,
+                            group_id, buckets)
+                        dp.send_msg(req)
+
+                    actions = [ofp_parser.OFPActionGroup(group_id)]
+
+                    self.add_flow(dp, 32768, match_ip, actions)
+                    self.add_flow(dp, 1, match_arp, actions)
+
+                elif len(out_ports) == 1:
+                    actions = [ofp_parser.OFPActionOutput(out_ports[0][0])]
+
+                    self.add_flow(dp, 32768, match_ip, actions)
+                    self.add_flow(dp, 1, match_arp, actions)
+        print("Path installation finished in ", time.time() - computation_start )
+        return paths_with_ports[0][src][1]
+
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
+        # print("Adding flow ", match, actions)
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                              actions)]
-
-        mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                hard_timeout=hard_timeout,
-                                match=match, instructions=inst)
+        if buffer_id:
+            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
+                                    priority=priority, match=match,
+                                    instructions=inst)
+        else:
+            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+                                    match=match, instructions=inst)
         datapath.send_msg(mod)
 
-    def _build_packet_out(self, datapath, buffer_id, src_port, dst_port, data):
-        actions = []
-        if dst_port:
-            actions.append(datapath.ofproto_parser.OFPActionOutput(dst_port))
-
-        msg_data = None
-        if buffer_id == datapath.ofproto.OFP_NO_BUFFER:
-            if data is None:
-                return None
-            msg_data = data
-
-        out = datapath.ofproto_parser.OFPPacketOut(
-            datapath=datapath, buffer_id=buffer_id,
-            data=msg_data, in_port=src_port, actions=actions)
-        return out
-
-    def send_packet_out(self, datapath, buffer_id, src_port, dst_port, data):
-        out = self._build_packet_out(datapath, buffer_id,
-                                     src_port, dst_port, data)
-        if out:
-            datapath.send_msg(out)
-
-    def flood(self, msg):
-        datapath = msg.datapath
+    @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
+    def _switch_features_handler(self, ev):
+        print("switch_features_handler is called")
+        datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        out = self._build_packet_out(datapath, ofproto.OFP_NO_BUFFER,
-                                     ofproto.OFPP_CONTROLLER,
-                                     ofproto.OFPP_FLOOD, msg.data)
-        datapath.send_msg(out)
-        self.logger.debug("Flooding msg")
 
-    def arp_forwarding(self, msg, src_ip, dst_ip, eth_pkt):
-        datapath = msg.datapath
-        parser = datapath.ofproto_parser
-        in_port = msg.match['in_port']
+        match = parser.OFPMatch()
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
+                                          ofproto.OFPCML_NO_BUFFER)]
+        self.add_flow(datapath, 0, match, actions)
 
-        out_port = self.mac_to_port[datapath.id].get(eth_pkt.dst)
-        if out_port is not None:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=eth_pkt.dst,
-                                    eth_type=eth_pkt.ethertype)
-            actions = [parser.OFPActionOutput(out_port)]
-            self.add_flow(datapath, 0, 1, match, actions)
-            self.send_packet_out(datapath, msg.buffer_id, in_port,
-                                 out_port, msg.data)
-            self.logger.debug("Reply ARP to knew host")
-        else:
-            self.flood(msg)
-
-    def mac_learning(self, dpid, src_mac, in_port):
-        self.mac_to_port.setdefault(dpid, {})
-        if src_mac in self.mac_to_port[dpid]:
-            if in_port != self.mac_to_port[dpid][src_mac]:
-                return False
-        else:
-            self.mac_to_port[dpid][src_mac] = in_port
-            return True
-
-    def send_group_mod(self, datapath,):
-        ofproto = datapath.ofproto
-        ofp_parser = datapath.ofproto_parser
-
-        port_1 = 3
-        queue_1 = ofp_parser.OFPActionSetQueue(0)
-        actions_1 = [queue_1, ofp_parser.OFPActionOutput(port_1)]
-
-        port_2 = 2
-        queue_2 = ofp_parser.OFPActionSetQueue(0)
-        actions_2 = [queue_2, ofp_parser.OFPActionOutput(port_2)]
-
-        weight_1 = 50
-        weight_2 = 50
-
-        watch_port = ofproto_v1_3.OFPP_ANY
-        watch_group = ofproto_v1_3.OFPQ_ALL
-
-        buckets = [
-            ofp_parser.OFPBucket(weight_1, watch_port, watch_group, actions_1),
-            ofp_parser.OFPBucket(weight_2, watch_port, watch_group, actions_2)]
-
-        group_id = 50
-        req = ofp_parser.OFPGroupMod(datapath, ofproto.OFPFC_ADD,
-                                     ofproto.OFPGT_SELECT, group_id, buckets)
-
-        datapath.send_msg(req)
+    @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
+    def port_desc_stats_reply_handler(self, ev):
+        switch = ev.msg.datapath
+        for p in ev.msg.body:
+            self.bandwidths[switch.id][p.port_no] = p.curr_speed
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         msg = ev.msg
         datapath = msg.datapath
-        dpid = datapath.id
+        ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         in_port = msg.match['in_port']
 
         pkt = packet.Packet(msg.data)
-        eth = pkt.get_protocols(ethernet.ethernet)[0]
+        eth = pkt.get_protocol(ethernet.ethernet)
         arp_pkt = pkt.get_protocol(arp.arp)
-        ip_pkt = pkt.get_protocol(ipv4.ipv4)
 
-        ip_pkt_6 = pkt.get_protocol(ipv6.ipv6)
-        if isinstance(ip_pkt_6, ipv6.ipv6):
-            actions = []
-            match = parser.OFPMatch(eth_type=ether.ETH_TYPE_IPV6)
-            self.add_flow(datapath, 0, 1, match, actions)
+        # avoid broadcast from LLDP
+        if eth.ethertype == 35020:
             return
 
-        if isinstance(arp_pkt, arp.arp):
-            self.logger.debug("ARP processing")
-            if self.mac_learning(dpid, eth.src, in_port) is False:
-                self.logger.debug("ARP packet enter in different ports")
-                return
+        if pkt.get_protocol(ipv6.ipv6):  # Drop the IPV6 Packets.
+            match = parser.OFPMatch(eth_type=eth.ethertype)
+            actions = []
+            self.add_flow(datapath, 1, match, actions)
+            return None
 
-            self.arp_forwarding(msg, arp_pkt.src_ip, arp_pkt.dst_ip, eth)
+        dst = eth.dst
+        src = eth.src
+        dpid = datapath.id
 
-        if isinstance(ip_pkt, ipv4.ipv4):
-            self.logger.debug("IPV4 processing")
-            mac_to_port_table = self.mac_to_port.get(dpid)
-            if mac_to_port_table is None:
-                self.logger.info("Dpid is not in mac_to_port")
-                return
+        if src not in self.hosts:
+            self.hosts[src] = (dpid, in_port)
 
-            out_port = None
-            if eth.dst in mac_to_port_table:
-                if dpid == 1 and in_port == 1:
-                    if self.FLAGS is True:
-                        self.send_group_mod(datapath)
-                        self.logger.info("send_group_mod")
-                        self.FLAGS = False
+        out_port = ofproto.OFPP_FLOOD
 
-                    actions = [parser.OFPActionGroup(group_id=50)]
-                    match = parser.OFPMatch(in_port=in_port,
-                                            eth_type=eth.ethertype,
-                                            ipv4_src=ip_pkt.src)
-                    self.add_flow(datapath, 0, 3, match, actions)
-                    # asign output at 2
-                    self.send_packet_out(datapath, msg.buffer_id,
-                                         in_port, 2, msg.data)
-                else:
-                    #Normal flows
-                    out_port = mac_to_port_table[eth.dst]
-                    actions = [parser.OFPActionOutput(out_port)]
-                    match = parser.OFPMatch(in_port=in_port, eth_dst=eth.dst,
-                                            eth_type=eth.ethertype)
-                    self.add_flow(datapath, 0, 1, match, actions)
-                    self.send_packet_out(datapath, msg.buffer_id, in_port,
-                                         out_port, msg.data)
-            else:
-                if self.mac_learning(dpid, eth.src, in_port) is False:
-                    self.logger.debug("IPV4 packet enter in different ports")
-                    return
-                else:
-                    self.flood(msg)
+        if arp_pkt:
+            # print(dpid, pkt)
+            src_ip = arp_pkt.src_ip
+            dst_ip = arp_pkt.dst_ip
+            if arp_pkt.opcode == arp.ARP_REPLY:
+                self.arp_table[src_ip] = src
+                h1 = self.hosts[src]
+                h2 = self.hosts[dst]
+                out_port = self.install_paths(h1[0], h1[1], h2[0], h2[1], src_ip, dst_ip)
+                self.install_paths(h2[0], h2[1], h1[0], h1[1], dst_ip, src_ip) # reverse
+            elif arp_pkt.opcode == arp.ARP_REQUEST:
+                if dst_ip in self.arp_table:
+                    self.arp_table[src_ip] = src
+                    dst_mac = self.arp_table[dst_ip]
+                    h1 = self.hosts[src]
+                    h2 = self.hosts[dst_mac]
+                    out_port = self.install_paths(h1[0], h1[1], h2[0], h2[1], src_ip, dst_ip)
+                    self.install_paths(h2[0], h2[1], h1[0], h1[1], dst_ip, src_ip) # reverse
+
+        # print(pkt)
+
+        actions = [parser.OFPActionOutput(out_port)]
+
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+            data = msg.data
+
+        out = parser.OFPPacketOut(
+            datapath=datapath, buffer_id=msg.buffer_id, in_port=in_port,
+            actions=actions, data=data)
+        datapath.send_msg(out)
+
+    @set_ev_cls(event.EventSwitchEnter)
+    def switch_enter_handler(self, ev):
+        switch = ev.switch.dp
+        ofp_parser = switch.ofproto_parser
+
+        if switch.id not in self.switches:
+            self.switches.append(switch.id)
+            self.datapath_list[switch.id] = switch
+
+            # Request port/link descriptions, useful for obtaining bandwidth
+            req = ofp_parser.OFPPortDescStatsRequest(switch)
+            switch.send_msg(req)
+
+    @set_ev_cls(event.EventSwitchLeave, MAIN_DISPATCHER)
+    def switch_leave_handler(self, ev):
+        print(ev)
+        switch = ev.switch.dp.id
+        if switch in self.switches:
+            self.switches.remove(switch)
+            del self.datapath_list[switch]
+            del self.adjacency[switch]
+
+    @set_ev_cls(event.EventLinkAdd, MAIN_DISPATCHER)
+    def link_add_handler(self, ev):
+        s1 = ev.link.src
+        s2 = ev.link.dst
+        self.adjacency[s1.dpid][s2.dpid] = s1.port_no
+        self.adjacency[s2.dpid][s1.dpid] = s2.port_no
+
+    @set_ev_cls(event.EventLinkDelete, MAIN_DISPATCHER)
+    def link_delete_handler(self, ev):
+        s1 = ev.link.src
+        s2 = ev.link.dst
+        # Exception handling if switch already deleted
+        try:
+            del self.adjacency[s1.dpid][s2.dpid]
+            del self.adjacency[s2.dpid][s1.dpid]
+        except KeyError:
+            pass
