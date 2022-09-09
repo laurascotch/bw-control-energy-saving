@@ -67,6 +67,44 @@ def get_all_switches():
     return switches
 
 
+def shut_links(links,new_links):
+    to_be_shut = []
+    for link in new_links:
+        link_str = f"s{link[0]},s{link[1]}"
+        if link_str in links.keys():
+            del links[link_str]
+    for l,ports in links.items():
+        port = ports.split(',')
+        s0 = re.match("s(\d+)?-eth(\d+)?",port[0])
+        s1 = re.match("s(\d+)?-eth(\d+)?",port[1])
+        dpid0 = s0[1].rjust(16, '0')
+        portno0 = s0[2]
+        dpid1 = s1[1].rjust(16, '0')
+        portno1 = s1[2]
+        url = f"http://localhost:8080/stats/portdesc/modify"
+
+        data0 = json.dumps({"dpid": dpid0, "port_no":portno0, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
+        data1 = json.dumps({"dpid": dpid1, "port_no":portno1, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
+
+        crl = pycurl.Curl()
+        crl.setopt(pycurl.POST, 1)
+        crl.setopt(crl.URL, url)
+        crl.setopt(crl.POSTFIELDS, data0)
+        crl.setopt(crl.VERBOSE, 1)
+
+        crl.perform()
+        crl.close()
+
+        crl = pycurl.Curl()
+        crl.setopt(pycurl.POST, 1)
+        crl.setopt(crl.URL, url)
+        crl.setopt(crl.POSTFIELDS, data1)
+        crl.setopt(crl.VERBOSE, 1)
+
+        crl.perform()
+        crl.close()
+
+
 if __name__ == "__main__":
     switches = get_all_switches()
     switches.sort()
@@ -111,12 +149,17 @@ if __name__ == "__main__":
     bfs_origin = max(bfs_value, key=bfs_value.get)
 
     T = nx.bfs_tree(G,bfs_origin)
+    #new_links = [line for line in nx.generate_edgelist(T, data=False)] 
+    new_links = list(T.edges())
+
+    # shut unwanted links
+    shut_links(links,new_links)
 
     # if a leaf switch has no hosts attached, it can be turned off
     # let's find them:
     switch_off = [x for x in T.nodes() if T.out_degree(x)==0 and host_per_switch[x]==0]
 
-    print(sorted(T.edges()))
+    #print(sorted(T.edges()))
 
     # now let's add hosts to the bfs_tree
     hosts = []
@@ -130,9 +173,10 @@ if __name__ == "__main__":
     
     network = T.to_undirected()
 
+    flows = []
     # now we can compute paths between each other host
     for host in hosts:
         paths = nx.single_source_shortest_path(network,host)
         print(paths)    # must delete paths to switches and maintain only those to hosts
-
-    # after having all paths, we can populate the ryu flow tables for each switch
+        
+        # after having all paths, we can populate the ryu flow tables for each switch
