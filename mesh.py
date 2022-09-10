@@ -20,7 +20,7 @@ from mininet.cli import CLI
 from mininet.util import quietRun
 from mininet.link import TCLink
 
-from time import time
+import time
 import sys
 
 flush = sys.stdout.flush
@@ -63,11 +63,11 @@ def testBandwidth():
     h7 = net.addHost( 'h7', ip='10.0.0.7', mac='cc:07', dpid="117")
 
     info( '*** Adding switch\n' )
-    s1 = net.addSwitch( 's1', dpid="1", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone')
-    s2 = net.addSwitch( 's2', dpid="2", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone')
-    s3 = net.addSwitch( 's3', dpid="3", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone')
-    s4 = net.addSwitch( 's4', dpid="4", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone')
-    s5 = net.addSwitch( 's5', dpid="5", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone')
+    s1 = net.addSwitch( 's1', dpid="1", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
+    s2 = net.addSwitch( 's2', dpid="2", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
+    s3 = net.addSwitch( 's3', dpid="3", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
+    s4 = net.addSwitch( 's4', dpid="4", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
+    s5 = net.addSwitch( 's5', dpid="5", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
 
     info( '*** Creating links\n' )
     
@@ -103,28 +103,6 @@ def testBandwidth():
     s4.start( [c0] )
     s5.start( [c0] )
     net.start()
-    #net.start()
-    # test the network with pingall
-    #net.pingAll()
-    #info( '\n' )
-
-    #hosts = net.hosts
-
-    #info( '*** Testing connectivity between hosts\n' )
-    #for n in range(1,len(hosts)):
-    #    net.ping([ hosts[0], hosts[n] ])
-    '''
-    info( '*** Testing bandwidth\n' )
-    for n in range(1,len(hosts)):
-        src, dst = hosts[0], hosts[n]
-        # Try to prime the pump to reduce PACKET_INs during test
-        # since the reference controller is reactive
-        src.cmd( 'telnet', dst.IP(), '5001' )
-        info( "testing", src.name, "<->", dst.name, '\n' )
-        serverbw, _clientbw = net.iperf( [ src, dst ], seconds=5 )
-        info( serverbw, '\n' )
-        flush()
-    '''
 
     info(net['s1'].cmd("ovs-vsctl set Bridge s1 protocols=OpenFlow13"))
     info(net['s1'].cmd("ovs-vsctl set-manager ptcp:6632"))
@@ -136,6 +114,10 @@ def testBandwidth():
     info(net['s4'].cmd("ovs-vsctl set-manager ptcp:6632"))
     info(net['s5'].cmd("ovs-vsctl set Bridge s5 protocols=OpenFlow13"))
     info(net['s5'].cmd("ovs-vsctl set-manager ptcp:6632"))
+
+    #while(s1.cmdPrint('ovs-ofctl show s1 | grep -o FORWARD | head -n1') != "FORWARD\r\n"):
+    #    time.sleep(3)
+    #info( '*** STP ready\n' )
 
     info(server.cmd("iperf -s -i1 &"))
     info(h1.cmd("iperf -s -i1 &"))

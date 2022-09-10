@@ -67,6 +67,63 @@ def get_all_switches():
     return switches
 
 
+def clean_flows(switches):
+    for switch_dpid in switches:
+        url = f"http://localhost:8080/stats/flowentry/delete"
+
+        crl = pycurl.Curl()
+
+        #data = json.dumps({"dpid": switch_dpid, "table_id": 1, "match":{"in_port": port_in},"actions":[{"type":"OUTPUT","port":port_out}]})
+        data = json.dumps({"dpid": switch_dpid, "table_id": 1})
+
+        crl.setopt(pycurl.POST, 1)
+        crl.setopt(crl.URL, url)
+        crl.setopt(crl.POSTFIELDS, data)
+        crl.setopt(crl.VERBOSE, 1)
+
+        crl.perform()
+        crl.close()
+
+        data2 = json.dumps({"dpid": switch_dpid, "priority": 0, "cookie": 0, "idle_timeout": 0, "hard_timeout": 0, "flags": 0, "actions": [{"type":"OUTPUT","port":"CONTROLLER"}], "match": {}, "table_id": 1})
+
+        url = f"http://localhost:8080/stats/flowentry/add"
+
+        crl = pycurl.Curl()
+
+        crl.setopt(pycurl.POST, 1)
+        crl.setopt(crl.URL, url)
+        crl.setopt(crl.POSTFIELDS, data2)
+        crl.setopt(crl.VERBOSE, 1)
+
+        crl.perform()
+        crl.close()
+
+
+def install_flows(switches,flows):
+    clean_flows(switches)
+    for flow in flows:
+        #flow = [switch_dpid, dl_src, dl_dst, in_port, out_port]
+        switch_dpid = flow[0]
+        dl_src = flow[1]
+        dl_dst = flow[2]
+        in_port = (re.match("s\d+-eth(\d+)?",flow[3]))[1]
+        out_port = (re.match("s\d+-eth(\d+)?",flow[4]))[1]
+
+        url = f"http://localhost:8080/stats/flowentry/add"
+
+        crl = pycurl.Curl()
+
+        data = json.dumps({"dpid": switch_dpid, "table_id": 1, "idle_timeout": 300, "match":{"in_port": in_port, "dl_src":dl_src, "dl_dst":dl_dst},"actions":[{"type":"OUTPUT","port":out_port}]})
+
+        crl.setopt(pycurl.POST, 1)
+        crl.setopt(crl.URL, url)
+        crl.setopt(crl.POSTFIELDS, data)
+        crl.setopt(crl.VERBOSE, 1)
+
+        crl.perform()
+        crl.close()
+
+
 def shut_links(links,new_links):
     to_be_shut = []
     for link in new_links:
@@ -141,42 +198,56 @@ if __name__ == "__main__":
         edge = f"s{s1},s{s2}"
         links[edge] = f"{p1},{p2}"
 
-    #print(links)
-    bfs_value = {}
-    for s in switches:
-        s_degree = G.degree[s]
-        bfs_value[s] = s_degree * 2 + host_per_switch[s]
-    bfs_origin = max(bfs_value, key=bfs_value.get)
-
-    T = nx.bfs_tree(G,bfs_origin)
-    #new_links = [line for line in nx.generate_edgelist(T, data=False)] 
-    new_links = list(T.edges())
-
-    # shut unwanted links
-    shut_links(links,new_links)
-
-    # if a leaf switch has no hosts attached, it can be turned off
-    # let's find them:
-    switch_off = [x for x in T.nodes() if T.out_degree(x)==0 and host_per_switch[x]==0]
-
-    #print(sorted(T.edges()))
-
-    # now let's add hosts to the bfs_tree
+    # now let's add hosts to the network graph
     hosts = []
     for port,host in sw_hosts.items():
         m = re.match("s(\d+)?-eth(\d+)?",port)
         s = m[1]
         p = m[2]
         hosts.append(host)
-        T.add_node(host)
-        T.add_edge(s,host)
+        G.add_node(host)
+        G.add_edge(s,host)
     
-    network = T.to_undirected()
+    network = G.to_undirected()
 
     flows = []
+    host_to_switch_port = dict((v,k) for k,v in sw_hosts.items())
     # now we can compute paths between each other host
     for host in hosts:
         paths = nx.single_source_shortest_path(network,host)
-        print(paths)    # must delete paths to switches and maintain only those to hosts
-        
+        #print(paths)    # must delete paths to switches and maintain only those to hosts
+        for dest,path in paths.items():
+            flow = []   # 0:switch_dpid, 1:dl_src, 2:dl_dst, 3:in_port, 4:out_port
+            if dest == host:
+                continue
+            if dest in switches:
+                continue
+            for i in range(1,len(path)-1):
+                hop = path[i]
+                dl_src = host
+                dl_dst = dest
+                switch_dpid = hop
+                in_port = ''
+                out_port = ''
+                if i==1 and i==(len(path)-2):
+                    in_port = host_to_switch_port[host]
+                    out_port = host_to_switch_port[dest]
+                elif i==1:
+                    in_port = host_to_switch_port[host]
+                    link_out = f"s{hop},s{path[i+1]}"
+                    out_port = links[link_out].split(',')[0]
+                elif i==(len(path)-2):
+                    link_in = f"s{path[i-1]},s{hop}"
+                    in_port = links[link_in].split(',')[1]
+                    out_port = host_to_switch_port[dest]
+                else:
+                    link_in = f"s{path[i-1]},s{hop}"
+                    in_port = links[link_in].split(',')[1]
+                    link_out = f"s{hop},s{path[i+1]}"
+                    out_port = links[link_out].split(',')[0]
+                flow = [switch_dpid, dl_src, dl_dst, in_port, out_port]
+                flows.append(flow)
+
+    #print(flows)
+    install_flows(switches,flows)
         # after having all paths, we can populate the ryu flow tables for each switch
