@@ -6,9 +6,11 @@ import json
 # curl -X POST -d '{"dpid": 1, "port_no":1, "config": 1, "mask": 1}' http://localhost:8080/stats/portdesc/modify
 
 # ===== MODIFICA QUI =====
-switch_dpid = '1'
-port_no = '2'
+switch_dpid = '2'
+port_no = '1'
 rate_mbps = 0
+no_shut = 0
+shut = 1
 # ========================
 
 dpid = switch_dpid.rjust(16, '0')
@@ -21,7 +23,7 @@ url = f"http://localhost:8080/stats/portdesc/modify"
 
 crl = pycurl.Curl()
 
-data = json.dumps({"dpid": switch_dpid, "port_no":port_no, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
+data = json.dumps({"dpid": switch_dpid, "port_no":port_no, "config": no_shut, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
 
 crl.setopt(pycurl.POST, 1)
 crl.setopt(crl.URL, url)

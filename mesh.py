@@ -63,11 +63,11 @@ def testBandwidth():
     h7 = net.addHost( 'h7', ip='10.0.0.7', mac='cc:07', dpid="117")
 
     info( '*** Adding switch\n' )
-    s1 = net.addSwitch( 's1', dpid="1", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
-    s2 = net.addSwitch( 's2', dpid="2", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
-    s3 = net.addSwitch( 's3', dpid="3", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
-    s4 = net.addSwitch( 's4', dpid="4", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
-    s5 = net.addSwitch( 's5', dpid="5", protocols="OpenFlow13", cls=OVSKernelSwitch, failMode='standalone', stp=True)
+    s1 = net.addSwitch( 's1', dpid="1", protocols="OpenFlow13", cls=OVSKernelSwitch)#, failMode='standalone', stp=True)
+    s2 = net.addSwitch( 's2', dpid="2", protocols="OpenFlow13", cls=OVSKernelSwitch)#, failMode='standalone', stp=True)
+    s3 = net.addSwitch( 's3', dpid="3", protocols="OpenFlow13", cls=OVSKernelSwitch)#, failMode='standalone', stp=True)
+    s4 = net.addSwitch( 's4', dpid="4", protocols="OpenFlow13", cls=OVSKernelSwitch)#, failMode='standalone', stp=True)
+    s5 = net.addSwitch( 's5', dpid="5", protocols="OpenFlow13", cls=OVSKernelSwitch)#, failMode='standalone', stp=True)
 
     info( '*** Creating links\n' )
     

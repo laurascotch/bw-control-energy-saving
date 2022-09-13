@@ -6,8 +6,10 @@ import re
 import matplotlib.pyplot as plt
 
 # ===== GLOBAL DICTIONARIES =====
-previous_pkt_count = {}     # keeps track of packets in flow, to understand whether there's traffic passing or not
-prev_port_pkt_count = {}
+#previous_pkt_count = {}     # keeps track of packets in flow, to understand whether there's traffic passing or not
+previous_bytes = {}     # keeps track of packets in flow, to understand whether there's traffic passing or not
+#prev_port_pkt_count = {}
+prev_port_bytes = {}
 power_per_intf = {'10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}     # link rate (Mbps) : power required (W)
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
@@ -74,9 +76,11 @@ def get_switch_ports(switches):
         tmp = switch_ports[switch_name]
         tmp2 = tmp
         for i in tmp:
-            prev_port_pkt_count[f"{switch_name}-eth{i}"] = 0
+            #prev_port_pkt_count[f"{switch_name}-eth{i}"] = 0
+            prev_port_bytes[f"{switch_name}-eth{i}"] = 0
             for j in tmp2:
-                previous_pkt_count[f"{switch_name}-{i}-{j}"] = 0
+                #previous_pkt_count[f"{switch_name}-{i}-{j}"] = 0
+                previous_bytes[f"{switch_name}-{i}-{j}"] = 0
     
     return switch_ports
 
@@ -164,8 +168,11 @@ def get_working_ports(switches):
             if stats['port_no'] != 'LOCAL':
                 port_name = f"{switch}-eth{stats['port_no']}"
                 port_pkt = stats['rx_packets'] + stats['tx_packets']
-                if port_pkt > prev_port_pkt_count[port_name]:
-                    prev_port_pkt_count[port_name] = port_pkt
+                port_bytes = stats['rx_bytes'] + stats['tx_bytes']
+                #if port_pkt > prev_port_pkt_count[port_name]:
+                if port_bytes > (prev_port_bytes[port_name]+200):
+                    #prev_port_pkt_count[port_name] = port_pkt
+                    prev_port_bytes[port_name] = port_bytes
                     working_ports.append(port_name)
     
     return working_ports
