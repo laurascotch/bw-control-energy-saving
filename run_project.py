@@ -5,6 +5,7 @@ import time
 import re
 import matplotlib.pyplot as plt
 from bfs_stp import bfs_stp
+from initialize_qos import initialize_qos
 
 
 # ===== GLOBAL DICTIONARIES =====
@@ -124,7 +125,7 @@ def check_flows():
 
     get_body = b_obj.getvalue()
     raw_data = json.loads(get_body.decode('utf8'))
-    print(raw_data)
+    #print(raw_data)
     flows = len(raw_data['1'])
 
     return flows
@@ -184,7 +185,7 @@ def get_working_ports(switches):
         for stats in port_stats:
             if stats['port_no'] != 'LOCAL':
                 port_name = f"{switch}-eth{stats['port_no']}"
-                port_pkt = stats['rx_packets'] + stats['tx_packets']
+                #port_pkt = stats['rx_packets'] + stats['tx_packets']
                 port_bytes = stats['rx_bytes'] + stats['tx_bytes']
                 #if port_pkt > prev_port_pkt_count[port_name]:
                 if port_bytes > (prev_port_bytes[port_name]+200):
@@ -249,9 +250,9 @@ def get_instant_energy():
     return total_network_energy, switch_energy
     
 
-def energy():
+def energy(switches):
     # set up
-    switches = get_all_switches()
+    #switches = get_all_switches()
     switch_ports = get_switch_ports(switches)
     ports = get_all_ports(switches)
     #print(ports)
@@ -306,11 +307,17 @@ def energy():
 if __name__ == "__main__":
     # compute BFS STP
     bfs_stp()
+    print("BREAKING LOOPS TOPOLOGY")
     # wait for it to install (check_flow tables)
     flows = 0
     while flows<3:
+        print(".")
         time.sleep(5)
         flows = check_flows()
     # run initial_setup.py
     # run energy while checking for topology changes
+    print("NETWORK READY")
+    switches = get_all_switches()
+    initialize_qos(switches)
     print("READY TO RUN ENERGY OPTIMIZATION SCRIPT")
+    energy(switches)
