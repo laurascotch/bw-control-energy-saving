@@ -67,13 +67,77 @@ def get_all_switches():
     return switches
 
 
+def switch_off_unrouted(switch_off, links):
+    links_to_delete = []
+    for s in switch_off:
+        for l,ports in links.items():
+            port = ports.split(',')
+            s0 = re.match("s(\d+)?-eth(\d+)?",port[0])
+            s1 = re.match("s(\d+)?-eth(\d+)?",port[1])
+            dpid0 = s0[1]
+            portno0 = s0[2]
+            dpid1 = s1[1]
+            portno1 = s1[2]
+            if dpid0 == s:
+                url = f"http://localhost:8080/stats/portdesc/modify"
+                data0 = json.dumps({"dpid": dpid0, "port_no":portno0, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
+                data1 = json.dumps({"dpid": dpid1, "port_no":portno1, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
+                crl = pycurl.Curl()
+                crl.setopt(pycurl.POST, 1)
+                crl.setopt(crl.URL, url)
+                crl.setopt(crl.POSTFIELDS, data0)
+                crl.setopt(crl.VERBOSE, 1)
+
+                crl.perform()
+                crl.close()
+
+                crl = pycurl.Curl()
+                crl.setopt(pycurl.POST, 1)
+                crl.setopt(crl.URL, url)
+                crl.setopt(crl.POSTFIELDS, data1)
+                crl.setopt(crl.VERBOSE, 1)
+
+                crl.perform()
+                crl.close()
+                links_to_delete.append(l)
+            if dpid1 == s:
+                url = f"http://localhost:8080/stats/portdesc/modify"
+                data0 = json.dumps({"dpid": dpid0, "port_no":portno0, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
+                data1 = json.dumps({"dpid": dpid1, "port_no":portno1, "config": 1, "mask": 101})   # mask 101 per non avere problemi. config 1 shutta, config 0 unshutta
+                crl = pycurl.Curl()
+                crl.setopt(pycurl.POST, 1)
+                crl.setopt(crl.URL, url)
+                crl.setopt(crl.POSTFIELDS, data0)
+                crl.setopt(crl.VERBOSE, 1)
+
+                crl.perform()
+                crl.close()
+
+                crl = pycurl.Curl()
+                crl.setopt(pycurl.POST, 1)
+                crl.setopt(crl.URL, url)
+                crl.setopt(crl.POSTFIELDS, data1)
+                crl.setopt(crl.VERBOSE, 1)
+
+                crl.perform()
+                crl.close()
+                links_to_delete.append(l)
+    for l in links_to_delete:
+        del links[l]
+    
+    return links
+
+
 def shut_links(links,new_links):
+    new_links_str = {}
     for link in new_links:
         link_str = f"s{link[0]},s{link[1]}"
         link_str_reverse = f"s{link[1]},s{link[0]}"
         if link_str in links.keys():
+            new_links_str[link_str] = links[link_str]
             del links[link_str]
         if link_str_reverse in links.keys():
+            new_links_str[link_str_reverse] = links[link_str_reverse]
             del links[link_str_reverse]
     for l,ports in links.items():
         port = ports.split(',')
@@ -93,6 +157,7 @@ def shut_links(links,new_links):
 
         crl.perform()
         crl.close()
+    return new_links_str
 
 
 def bfs_stp():
@@ -147,12 +212,13 @@ def bfs_stp():
     new_links = list(T.edges())
 
     # shut unwanted links
-    shut_links(links,new_links)
+    links = shut_links(links,new_links)
 
     # if a leaf switch has no hosts attached, it can be turned off
     # let's find them:
     switch_off = [x for x in T.nodes() if T.out_degree(x)==0 and host_per_switch[x]==0]
     # to do: disable all ports of the found switches
+    links = switch_off_unrouted(switch_off, links)
     # ==============================
 
     # ========== populate the tree graph with hosts and compute flows ==========
@@ -174,3 +240,5 @@ def bfs_stp():
         # must delete paths to switches and maintain only those to hosts
         # after having all paths, we can populate the ryu flow tables for each switch
     # ==============================
+
+    return links

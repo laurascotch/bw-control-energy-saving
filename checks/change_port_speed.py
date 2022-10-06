@@ -5,9 +5,9 @@ import json
 # curl -X POST -d '{"port_name": "s1-eth3", "max_rate": "10000000000", "queues": [{"max_rate": "1000000000"}]}' http://localhost:8080/qos/queue/0000000000000001
 
 # ===== MODIFICA QUI =====
-switch_dpid = '1'
-port_no = '3'
-rate_mbps = 10
+switch_dpid = '2'
+port_no = '2'
+rate_mbps = 1
 # ========================
 
 dpid = switch_dpid.rjust(16, '0')

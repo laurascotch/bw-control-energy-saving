@@ -13,7 +13,7 @@ from initialize_qos import initialize_qos
 previous_bytes = {}     # keeps track of packets in flow, to understand whether there's traffic passing or not
 #prev_port_pkt_count = {}
 prev_port_bytes = {}
-power_per_intf = {'10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}     # link rate (Mbps) : power required (W)
+power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}     # link rate (Mbps) : power required (W)
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
@@ -39,6 +39,31 @@ def get_all_switches():
         switches.append(s)
 
     return switches
+
+
+def get_links():
+    # ========== get links from controller ==========
+    b_obj = BytesIO()
+    crl = pycurl.Curl()
+    crl.setopt(crl.URL, 'http://localhost:8080/v1.0/topology/links')
+    crl.setopt(crl.WRITEDATA, b_obj)
+    crl.perform()
+    crl.close()
+
+    get_body = b_obj.getvalue()
+    raw_data = json.loads(get_body.decode('utf8'))
+    
+    links = {}  # here we save which ports create the link in the form of: 's1,s2': 's1-eth1,s2-eth1'
+
+    for entry in raw_data:
+        s1 = entry['src']['dpid'].lstrip('0')
+        p1 = entry['src']['name']
+        s2 = entry['dst']['dpid'].lstrip('0')
+        p2 = entry['dst']['name']
+        edge = f"s{s1},s{s2}"
+        links[edge] = f"{p1},{p2}"
+    # ==============================
+    return links
 
 
 def get_switch_ports(switches):
@@ -147,12 +172,31 @@ def get_ports_speed():
 
     ports_speed = {}
 
+    prev_id = '0'
+
     for entry in raw_data:
         if entry['command_result']['result'] == 'success':
             switch_ports = entry['command_result']['details']
             port_names = switch_ports.keys()
             for port in port_names:
+                m = re.match("s(\d+)?-eth(\d+)?",port)
+                s_id = m[1]
+                port_data = ''
+                if s_id != prev_id:
+                    b_obj = BytesIO()
+                    crl = pycurl.Curl()
+                    url = f"http://localhost:8080/stats/portdesc/{s_id}"
+                    crl.setopt(crl.URL, url)
+                    crl.setopt(crl.WRITEDATA, b_obj)
+                    crl.perform()
+                    crl.close()
+                    get_body = b_obj.getvalue()
+                    port_data = json.loads(get_body.decode('utf8'))
                 speed = switch_ports[port]['0']['config']['max-rate']
+                for info in port_data[s_id]:
+                    if info['name'] == port:
+                        if info['config'] == 1 and info['state'] == 1:
+                            speed = '0'
                 mbps_speed = int(speed) / (1000 * 1000)
                 ports_speed[port] = mbps_speed
     
@@ -188,7 +232,7 @@ def get_working_ports(switches):
                 #port_pkt = stats['rx_packets'] + stats['tx_packets']
                 port_bytes = stats['rx_bytes'] + stats['tx_bytes']
                 #if port_pkt > prev_port_pkt_count[port_name]:
-                if port_bytes > (prev_port_bytes[port_name]+200):
+                if port_bytes > (prev_port_bytes[port_name]+300):
                     #prev_port_pkt_count[port_name] = port_pkt
                     prev_port_bytes[port_name] = port_bytes
                     working_ports.append(port_name)
@@ -196,7 +240,8 @@ def get_working_ports(switches):
     return working_ports
 
 
-def change_link_rate(used_ports,working_ports):
+#def change_link_rate(used_ports,working_ports):
+def change_link_rate(working_ports):
     ports_speed = get_ports_speed()
     for port in working_ports:
         used_ports[port] += 1
@@ -250,7 +295,7 @@ def get_instant_energy():
     return total_network_energy, switch_energy
     
 
-def energy(switches):
+def energy(switches, links):
     # set up
     #switches = get_all_switches()
     switch_ports = get_switch_ports(switches)
@@ -269,10 +314,13 @@ def energy(switches):
 
     try:
         while(count <= analysis_duration):
+            # TO DO: check if new run of STP is needed
+            actual_links = get_links()
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             working_ports = get_working_ports(switches)
-            change_link_rate(used_ports,working_ports)
+            #change_link_rate(used_ports,working_ports)
+            change_link_rate(working_ports)
             t_total_energy_required, t_switch_energy = get_instant_energy()
             energy_per_time.append(t_total_energy_required + BASE_POWER*5)
             
@@ -306,8 +354,8 @@ def energy(switches):
 
 if __name__ == "__main__":
     # compute BFS STP
-    bfs_stp()
-    print("BREAKING LOOPS TOPOLOGY")
+    links = bfs_stp()
+    print("BREAKING LOOPS in TOPOLOGY")
     # wait for it to install (check_flow tables)
     flows = 0
     while flows<3:
@@ -320,4 +368,4 @@ if __name__ == "__main__":
     switches = get_all_switches()
     initialize_qos(switches)
     print("READY TO RUN ENERGY OPTIMIZATION SCRIPT")
-    energy(switches)
+    energy(switches, links)

@@ -35,6 +35,7 @@ def get_all_switches():
         #switches.append(dpid)
         switches.append(s)
 
+    switches.sort()
     return switches
 
 
