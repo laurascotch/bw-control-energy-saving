@@ -4,8 +4,9 @@ from io import BytesIO
 import time
 import re
 import matplotlib.pyplot as plt
-from bfs_stp import bfs_stp
+from bfs_stp import bfs_stp, detect_loops
 from initialize_qos import initialize_qos
+from reset_flows import clean_flows
 
 
 # ===== GLOBAL DICTIONARIES =====
@@ -16,6 +17,10 @@ prev_port_bytes = {}
 power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}     # link rate (Mbps) : power required (W)
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
+
+SENSITIVITY = 325 # bytes per time unit that triggers the sensing of port usage 
+
+ANALYSIS_DURATION = 30
 
 def get_all_switches():
     b_obj = BytesIO()
@@ -232,7 +237,7 @@ def get_working_ports(switches):
                 #port_pkt = stats['rx_packets'] + stats['tx_packets']
                 port_bytes = stats['rx_bytes'] + stats['tx_bytes']
                 #if port_pkt > prev_port_pkt_count[port_name]:
-                if port_bytes > (prev_port_bytes[port_name]+350):
+                if port_bytes > (prev_port_bytes[port_name]+SENSITIVITY):
                     #prev_port_pkt_count[port_name] = port_pkt
                     prev_port_bytes[port_name] = port_bytes
                     working_ports.append(port_name)
@@ -261,22 +266,25 @@ def change_link_rate(working_ports):
             rate_mbps = 10
 
         if ports_speed[port] != rate_mbps:
-            crl = pycurl.Curl()
+            try:
+                crl = pycurl.Curl()
 
-            rate = str(rate_mbps * 1000 * 1000)
-            dpid = re.match("s(\d+)?-eth\d+",port)[1]
-            dpid = dpid.rjust(16, '0')
-            url = f"http://localhost:8080/qos/queue/{dpid}"
-            data = json.dumps({"port_name": port , "max_rate": "10000000000", "queues": [{"max_rate": rate }]})
+                rate = str(rate_mbps * 1000 * 1000)
+                dpid = re.match("s(\d+)?-eth\d+",port)[1]
+                dpid = dpid.rjust(16, '0')
+                url = f"http://localhost:8080/qos/queue/{dpid}"
+                data = json.dumps({"port_name": port , "max_rate": "10000000000", "queues": [{"max_rate": rate }]})
 
-            crl.setopt(pycurl.POST, 1)
-            crl.setopt(crl.URL, url)
-            crl.setopt(crl.POSTFIELDS, data)
-            crl.setopt(crl.WRITEFUNCTION, lambda x: None)
-            #crl.setopt(crl.VERBOSE, 1)
+                crl.setopt(pycurl.POST, 1)
+                crl.setopt(crl.URL, url)
+                crl.setopt(crl.POSTFIELDS, data)
+                crl.setopt(crl.WRITEFUNCTION, lambda x: None)
+                #crl.setopt(crl.VERBOSE, 1)
 
-            crl.perform()
-            crl.close()
+                crl.perform()
+                crl.close()
+            except KeyboardInterrupt:
+                return
     
 
 
@@ -295,9 +303,11 @@ def get_instant_energy():
     return total_network_energy, switch_energy
     
 
-def energy(switches, links, switch_off):
+def energy(switches, links, switch_off, net_graph):
     # set up
     #switches = get_all_switches()
+    switched_off = switch_off
+    active_switches = [s for s in switches if s not in switched_off]
     switch_ports = get_switch_ports(switches)
     ports = get_all_ports(switches)
     active_links = links
@@ -307,40 +317,50 @@ def energy(switches, links, switch_off):
     for p in ports:
         used_ports[p] = 0
 
-    analysis_duration = 600
     count = 0
 
     energy_per_time = []
     switch_energy_per_time = {}
 
     try:
-        while(count <= analysis_duration):
+        while(count <= ANALYSIS_DURATION):
             # TO DO: check if new run of STP is needed
+            '''
             actual_links = get_links()
             if actual_links == active_links:
                 print("LINKS ARE THE SAME")
             else:
                 print("UPDATE NETWORK")
-                active_links, switch_off = bfs_stp()
+                time.sleep(2)
+                active_links, switch_off = detect_loops(switches, net_graph)
+                switched_off = switch_off
+                active_switches = [s for s in switches if s not in switched_off]
+                clean_flows(switches)
+            '''
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
-            working_ports = get_working_ports(switches)
-            #change_link_rate(used_ports,working_ports)
+            #working_ports = get_working_ports(switches)
+            working_ports = get_working_ports(active_switches)
             change_link_rate(working_ports)
             t_total_energy_required, t_switch_energy = get_instant_energy()
-            energy_per_time.append(t_total_energy_required + BASE_POWER*5)
+            #energy_per_time.append(t_total_energy_required + BASE_POWER*5)
+            energy_per_time.append(t_total_energy_required + BASE_POWER*len(active_switches))
             
-            info = f"t({count}): {t_total_energy_required+BASE_POWER*5} W | working ports: {working_ports}"
+            #info = f"t({count}): {t_total_energy_required+BASE_POWER*5} W | working ports: {working_ports}"
+            info = f"t({count}): {t_total_energy_required+BASE_POWER*len(active_switches)} W | working ports: {working_ports}"
             switch_info = ""
             for s, w in t_switch_energy.items():
-                switch_info += f"| s{s}: {w+BASE_POWER} "
+                if s not in switched_off:
+                    switch_info += f"| s{s}: {w+BASE_POWER} "
+                else:
+                    switch_info += f"| s{s}: {w+0} "
                 if s not in switch_energy_per_time.keys():
                     switch_energy_per_time[s] = []
                 switch_energy_per_time[s].append(w + BASE_POWER)
             print(info)
             print(switch_info)
             count += 1
-            time.sleep(1)
+            time.sleep(0.1)
     except KeyboardInterrupt:
         # risultati finali??
         pass
@@ -365,7 +385,7 @@ if __name__ == "__main__":
     for switch_pair,ports in links.items():
         all_links.write(f"{switch_pair}:{ports}\n")
     all_links.close()
-    links, switch_off = bfs_stp()   # links: active links, switch_off: switches that can be completely switched off (because nothing is passing through them)
+    links, switch_off, net_graph = bfs_stp()   # links: active links, switch_off: switches that can be completely switched off (because nothing is passing through them)
     print("BREAKING LOOPS in TOPOLOGY")
     # wait for it to install (check_flow tables)
     flows = 0
@@ -379,4 +399,4 @@ if __name__ == "__main__":
     switches = get_all_switches()
     initialize_qos(switches)
     print("READY TO RUN ENERGY OPTIMIZATION SCRIPT")
-    energy(switches, links, switch_off)
+    energy(switches, links, switch_off, net_graph)
