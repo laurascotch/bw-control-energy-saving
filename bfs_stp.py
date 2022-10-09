@@ -233,12 +233,12 @@ def bfs_stp():
     
     network = T.to_undirected()
 
-    flows = []
+    #flows = []
     # now we can compute paths between each other host
-    for host in hosts:
-        paths = nx.single_source_shortest_path(network,host)
+    #for host in hosts:
+    #    paths = nx.single_source_shortest_path(network,host)
         # must delete paths to switches and maintain only those to hosts
         # after having all paths, we can populate the ryu flow tables for each switch
     # ==============================
 
-    return links
+    return links, switch_off

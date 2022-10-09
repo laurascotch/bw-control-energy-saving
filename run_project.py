@@ -232,7 +232,7 @@ def get_working_ports(switches):
                 #port_pkt = stats['rx_packets'] + stats['tx_packets']
                 port_bytes = stats['rx_bytes'] + stats['tx_bytes']
                 #if port_pkt > prev_port_pkt_count[port_name]:
-                if port_bytes > (prev_port_bytes[port_name]+300):
+                if port_bytes > (prev_port_bytes[port_name]+350):
                     #prev_port_pkt_count[port_name] = port_pkt
                     prev_port_bytes[port_name] = port_bytes
                     working_ports.append(port_name)
@@ -295,11 +295,12 @@ def get_instant_energy():
     return total_network_energy, switch_energy
     
 
-def energy(switches, links):
+def energy(switches, links, switch_off):
     # set up
     #switches = get_all_switches()
     switch_ports = get_switch_ports(switches)
     ports = get_all_ports(switches)
+    active_links = links
     #print(ports)
 
     # used_ports = {}
@@ -316,6 +317,11 @@ def energy(switches, links):
         while(count <= analysis_duration):
             # TO DO: check if new run of STP is needed
             actual_links = get_links()
+            if actual_links == active_links:
+                print("LINKS ARE THE SAME")
+            else:
+                print("UPDATE NETWORK")
+                active_links, switch_off = bfs_stp()
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             working_ports = get_working_ports(switches)
@@ -354,7 +360,12 @@ def energy(switches, links):
 
 if __name__ == "__main__":
     # compute BFS STP
-    links = bfs_stp()
+    all_links = open("original_links.txt", "w")
+    links = get_links()
+    for switch_pair,ports in links.items():
+        all_links.write(f"{switch_pair}:{ports}\n")
+    all_links.close()
+    links, switch_off = bfs_stp()   # links: active links, switch_off: switches that can be completely switched off (because nothing is passing through them)
     print("BREAKING LOOPS in TOPOLOGY")
     # wait for it to install (check_flow tables)
     flows = 0
@@ -368,4 +379,4 @@ if __name__ == "__main__":
     switches = get_all_switches()
     initialize_qos(switches)
     print("READY TO RUN ENERGY OPTIMIZATION SCRIPT")
-    energy(switches, links)
+    energy(switches, links, switch_off)

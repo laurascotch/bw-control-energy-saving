@@ -7,7 +7,7 @@ import json
 
 # ===== MODIFICA QUI =====
 switch_dpid = '2'
-port_no = '1'
+port_no = '2'
 rate_mbps = 0
 no_shut = 0
 shut = 1
