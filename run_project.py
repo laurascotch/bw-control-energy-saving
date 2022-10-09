@@ -209,6 +209,7 @@ def get_ports_speed():
 
 
 def get_working_ports(switches):
+    print("GET WORKING PORTS")
 
     working_ports = []
 
@@ -247,6 +248,7 @@ def get_working_ports(switches):
 
 #def change_link_rate(used_ports,working_ports):
 def change_link_rate(working_ports):
+    print("CHANGE LINK RATE")
     ports_speed = get_ports_speed()
     for port in working_ports:
         used_ports[port] += 1
@@ -289,6 +291,7 @@ def change_link_rate(working_ports):
 
 
 def get_instant_energy():
+    print("GET INSTANT ENERGY")
     ports_speed = get_ports_speed()
     total_network_energy = 0
     switch_energy = {}
@@ -350,13 +353,14 @@ def energy(switches, links, switch_off, net_graph):
             info = f"t({count}): {t_total_energy_required+BASE_POWER*len(active_switches)} W | working ports: {working_ports}"
             switch_info = ""
             for s, w in t_switch_energy.items():
-                if s not in switched_off:
-                    switch_info += f"| s{s}: {w+BASE_POWER} "
-                else:
-                    switch_info += f"| s{s}: {w+0} "
                 if s not in switch_energy_per_time.keys():
                     switch_energy_per_time[s] = []
-                switch_energy_per_time[s].append(w + BASE_POWER)
+                if s not in switched_off:
+                    switch_info += f"| s{s}: {w+BASE_POWER} "
+                    switch_energy_per_time[s].append(w + BASE_POWER)
+                else:
+                    switch_info += f"| s{s}: {w+0} "
+                    switch_energy_per_time[s].append(w + 0)
             print(info)
             print(switch_info)
             count += 1
