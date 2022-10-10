@@ -18,9 +18,9 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-SENSITIVITY = 325 # bytes per time unit that triggers the sensing of port usage 
+SENSITIVITY = 675000 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps
 
-ANALYSIS_DURATION = 300
+ANALYSIS_DURATION = 150
 
 def get_all_switches():
     b_obj = BytesIO()
@@ -366,7 +366,7 @@ def energy(switches, links, ports_to_hosts, switch_off):
             print(info)
             print(switch_info)
             count += 1
-            time.sleep(0.1)
+            time.sleep(0.8)
     except KeyboardInterrupt:
         # risultati finali??
         pass
