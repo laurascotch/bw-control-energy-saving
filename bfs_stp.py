@@ -223,6 +223,7 @@ def bfs_stp():
 
     # ========== populate the tree graph with hosts and compute flows ==========
     hosts = []
+    ports_to_hosts = []
     for port,host in sw_hosts.items():
         m = re.match("s(\d+)?-eth(\d+)?",port)
         s = m[1]
@@ -230,6 +231,7 @@ def bfs_stp():
         hosts.append(host)
         T.add_node(host)
         T.add_edge(s,host)
+        ports_to_hosts.append(port)
     
     network = T.to_undirected()
 
@@ -241,7 +243,7 @@ def bfs_stp():
         # after having all paths, we can populate the ryu flow tables for each switch
     # ==============================
 
-    return links, switch_off, network
+    return links, ports_to_hosts, switch_off, network
 
 
 def detect_loops(switches, net_graph):

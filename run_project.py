@@ -20,7 +20,7 @@ used_ports = {}     # keeps track of whether a packet flow is going through a ce
 
 SENSITIVITY = 325 # bytes per time unit that triggers the sensing of port usage 
 
-ANALYSIS_DURATION = 30
+ANALYSIS_DURATION = 300
 
 def get_all_switches():
     b_obj = BytesIO()
@@ -208,12 +208,12 @@ def get_ports_speed():
     return ports_speed
 
 
-def get_working_ports(switches):
+def get_working_ports(active_switches,active_ports):
     print("GET WORKING PORTS")
 
     working_ports = []
 
-    for s in switches:
+    for s in active_switches:
         switch = f"s{s}"
 
         curl = pycurl.Curl()
@@ -238,7 +238,7 @@ def get_working_ports(switches):
                 #port_pkt = stats['rx_packets'] + stats['tx_packets']
                 port_bytes = stats['rx_bytes'] + stats['tx_bytes']
                 #if port_pkt > prev_port_pkt_count[port_name]:
-                if port_bytes > (prev_port_bytes[port_name]+SENSITIVITY):
+                if port_name in active_ports and port_bytes > (prev_port_bytes[port_name]+SENSITIVITY):
                     #prev_port_pkt_count[port_name] = port_pkt
                     prev_port_bytes[port_name] = port_bytes
                     working_ports.append(port_name)
@@ -247,46 +247,43 @@ def get_working_ports(switches):
 
 
 #def change_link_rate(used_ports,working_ports):
-def change_link_rate(working_ports):
+def change_link_rate(working_ports, active_ports):
     print("CHANGE LINK RATE")
     ports_speed = get_ports_speed()
     for port in working_ports:
         used_ports[port] += 1
 
     #print(used_ports)
-
+    print("CHANGE LINK RATE - got used ports")
     for port in used_ports.keys():
-        rate_mbps = 10
-        if used_ports[port] > 1:
-            rate_mbps = 100
-        if used_ports[port] > 3:
-            rate_mbps = 1000
-        if used_ports[port] > 6:
-            rate_mbps = 10000
-        if port not in working_ports:
-            used_ports[port] = 0
+        if port in active_ports:
             rate_mbps = 10
+            if used_ports[port] > 1:
+                rate_mbps = 100
+            if used_ports[port] > 3:
+                rate_mbps = 1000
+            if used_ports[port] > 6:
+                rate_mbps = 10000
+            if port not in working_ports:
+                used_ports[port] = 0
+                rate_mbps = 10
 
-        if ports_speed[port] != rate_mbps:
-            try:
+            if ports_speed[port] != rate_mbps:
+                print("CHANGE LINK RATE - changing link rate")
                 crl = pycurl.Curl()
-
                 rate = str(rate_mbps * 1000 * 1000)
                 dpid = re.match("s(\d+)?-eth\d+",port)[1]
                 dpid = dpid.rjust(16, '0')
                 url = f"http://localhost:8080/qos/queue/{dpid}"
                 data = json.dumps({"port_name": port , "max_rate": "10000000000", "queues": [{"max_rate": rate }]})
-
                 crl.setopt(pycurl.POST, 1)
                 crl.setopt(crl.URL, url)
                 crl.setopt(crl.POSTFIELDS, data)
                 crl.setopt(crl.WRITEFUNCTION, lambda x: None)
                 #crl.setopt(crl.VERBOSE, 1)
-
                 crl.perform()
                 crl.close()
-            except KeyboardInterrupt:
-                return
+            
     
 
 
@@ -306,7 +303,7 @@ def get_instant_energy():
     return total_network_energy, switch_energy
     
 
-def energy(switches, links, switch_off, net_graph):
+def energy(switches, links, ports_to_hosts, switch_off):
     # set up
     #switches = get_all_switches()
     switched_off = switch_off
@@ -314,6 +311,11 @@ def energy(switches, links, switch_off, net_graph):
     switch_ports = get_switch_ports(switches)
     ports = get_all_ports(switches)
     active_links = links
+    active_ports = []
+    for l,p in active_links.items():
+        p = p.split(',')
+        active_ports.append(p[0])
+    active_ports.extend(ports_to_hosts)
     #print(ports)
 
     # used_ports = {}
@@ -343,8 +345,8 @@ def energy(switches, links, switch_off, net_graph):
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
-            working_ports = get_working_ports(active_switches)
-            change_link_rate(working_ports)
+            working_ports = get_working_ports(active_switches,active_ports)
+            change_link_rate(working_ports,active_ports)
             t_total_energy_required, t_switch_energy = get_instant_energy()
             #energy_per_time.append(t_total_energy_required + BASE_POWER*5)
             energy_per_time.append(t_total_energy_required + BASE_POWER*len(active_switches))
@@ -389,7 +391,8 @@ if __name__ == "__main__":
     for switch_pair,ports in links.items():
         all_links.write(f"{switch_pair}:{ports}\n")
     all_links.close()
-    links, switch_off, net_graph = bfs_stp()   # links: active links, switch_off: switches that can be completely switched off (because nothing is passing through them)
+    switch_off = []
+    links, ports_to_hosts, switch_off, net_graph = bfs_stp()   # links: active links, switch_off: switches that can be completely switched off (because nothing is passing through them)
     print("BREAKING LOOPS in TOPOLOGY")
     # wait for it to install (check_flow tables)
     flows = 0
@@ -403,4 +406,4 @@ if __name__ == "__main__":
     switches = get_all_switches()
     initialize_qos(switches)
     print("READY TO RUN ENERGY OPTIMIZATION SCRIPT")
-    energy(switches, links, switch_off, net_graph)
+    energy(switches, links, ports_to_hosts, switch_off)
