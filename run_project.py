@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from bfs_stp import bfs_stp, detect_loops
 from initialize_qos import initialize_qos
 from reset_flows import clean_flows
+import sys
+import subprocess
 
 
 # ===== GLOBAL DICTIONARIES =====
@@ -14,13 +16,14 @@ from reset_flows import clean_flows
 previous_bytes = {}     # keeps track of packets in flow, to understand whether there's traffic passing or not
 #prev_port_pkt_count = {}
 prev_port_bytes = {}
+delta_port_bytes = {}
 power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}     # link rate (Mbps) : power required (W)
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
 SENSITIVITY = 675000 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps
 
-ANALYSIS_DURATION = 150
+ANALYSIS_DURATION = 40
 
 def get_all_switches():
     b_obj = BytesIO()
@@ -95,8 +98,6 @@ def get_switch_ports(switches):
         get_body = byte_response.getvalue()
         json_ports = json.loads(get_body.decode('utf8'))
 
-        #req = requests.request(method='get', url=f'http://127.0.0.1:8080/stats/port/{switch_dpid}')
-        #json_ports = req.json()
         ports = json_ports[switch_dpid]
         for port in ports:
             if port['port_no'] != 'LOCAL':
@@ -111,6 +112,7 @@ def get_switch_ports(switches):
         for i in tmp:
             #prev_port_pkt_count[f"{switch_name}-eth{i}"] = 0
             prev_port_bytes[f"{switch_name}-eth{i}"] = 0
+            delta_port_bytes[f"{switch_name}-eth{i}"] = [0]
             for j in tmp2:
                 #previous_pkt_count[f"{switch_name}-{i}-{j}"] = 0
                 previous_bytes[f"{switch_name}-{i}-{j}"] = 0
@@ -235,13 +237,15 @@ def get_working_ports(active_switches,active_ports):
         for stats in port_stats:
             if stats['port_no'] != 'LOCAL':
                 port_name = f"{switch}-eth{stats['port_no']}"
-                #port_pkt = stats['rx_packets'] + stats['tx_packets']
                 port_bytes = stats['rx_bytes'] + stats['tx_bytes']
-                #if port_pkt > prev_port_pkt_count[port_name]:
-                if port_name in active_ports and port_bytes > (prev_port_bytes[port_name]+SENSITIVITY):
-                    #prev_port_pkt_count[port_name] = port_pkt
-                    prev_port_bytes[port_name] = port_bytes
-                    working_ports.append(port_name)
+                delta_bytes = port_bytes - prev_port_bytes[port_name]
+                delta_port_bytes[port_name].append(delta_bytes)
+                prev_port_bytes[port_name] = port_bytes
+                if port_name in active_ports:
+                    #if port_bytes > (prev_port_bytes[port_name]+SENSITIVITY):
+                    if delta_bytes > SENSITIVITY:
+                        #prev_port_bytes[port_name] = port_bytes
+                        working_ports.append(port_name)
     
     return working_ports
 
@@ -301,7 +305,83 @@ def get_instant_energy():
         switch_energy[switch_dpid] = switch_energy[switch_dpid] + power_per_intf[str(speed)]
     
     return total_network_energy, switch_energy
+
+
+def compute_switch_throughput(active_switches):
+    instant_switch_throughput = {}
+    #for s in switches:
+    #    instant_switch_throughput[s] = []
     
+    for p,dt in delta_port_bytes.items():
+        #port_name = f"{switch}-eth{stats['port_no']}"
+        m = re.match("s(\d+)?-eth(\d+)?", p)
+        s_id = m[1]
+        if s_id not in instant_switch_throughput.keys():
+            instant_switch_throughput[s_id] = dt
+        else:
+            tmp = instant_switch_throughput[s_id]
+            wrap_tmp = [tmp,dt]
+            sumindexwise = [sum(x) for x in zip(*wrap_tmp)]
+            instant_switch_throughput[s_id] = sumindexwise
+    
+    for s in instant_switch_throughput.keys():
+        tmp = instant_switch_throughput[s]
+        mbps = [x*8/1000000 for x in tmp]
+        instant_switch_throughput[s] = mbps
+
+    for s,t in instant_switch_throughput.items():
+        print(f"{s} = {t}\n===")
+    return instant_switch_throughput
+
+
+
+
+def plot_results(energy_per_time, switch_energy_per_time, instant_switch_throughput):
+
+    plt.figure(1)
+    plt.hlines(y=BASE_POWER*len(switches), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
+    plt.plot(range(len(energy_per_time)), energy_per_time, color='blue', label='total')
+    plt.xlabel("time unit")
+    plt.ylabel("Power (W)")
+    plt.title("Power required by all switches in network over time")
+    plt.ylim(bottom=0)
+    plt.legend(loc="upper left")
+
+    plt.figure(2)
+    plt.hlines(y=BASE_POWER, xmin=0, xmax=len(energy_per_time), color='r', linestyles='--', label='switch base power')
+    switch_color = {'1':'steelblue', '2':'orchid', '3':'coral', '4':'gold', '5':'yellowgreen'}
+    for s in switch_energy_per_time.keys():
+        plt.plot(range(len(switch_energy_per_time[s])), switch_energy_per_time[s], color=switch_color[s], label=f's{s}')
+    plt.xlabel("time unit")
+    plt.ylabel("Power (W)")
+    plt.title("Power required by each switch in network over time")
+    plt.ylim(bottom=0)
+    plt.legend(loc="lower right")
+
+    plt.figure(3)
+    for s in instant_switch_throughput.keys():
+        plt.plot(range(len(instant_switch_throughput[s])), instant_switch_throughput[s], color=switch_color[s], label=f's{s}')
+    plt.xlabel("time unit")
+    plt.ylabel("Throughput (Mbps)")
+    plt.title("Instantaneous throughput of each switch")
+    plt.ylim(bottom=0)
+    plt.legend(loc="lower right")
+
+    plt.draw()
+    plt.show()
+'''
+    fig, ax = plt.subplots()
+    ax.hlines(y=BASE_POWER, xmin=0, xmax=len(energy_per_time), color='r', linestyles='--', label='switch base power')
+    ax.hlines(y=BASE_POWER*len(switches), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
+    ax.plot(range(len(energy_per_time)), energy_per_time, color='blue', label='total')
+    switch_color = {'1':'steelblue', '2':'orchid', '3':'coral', '4':'gold', '5':'yellowgreen'}
+    for s in switch_energy_per_time.keys():
+        ax.plot(range(len(switch_energy_per_time[s])), switch_energy_per_time[s], color=switch_color[s], label=f's{s}')
+    ax.set(xlabel='time unit', ylabel='Power (W)', title='Power required by all switches in network over time')
+    plt.legend(loc="upper left")
+    ax.set_ylim(ymin=0)
+    plt.show()
+'''
 
 def energy(switches, links, ports_to_hosts, switch_off):
     # set up
@@ -323,6 +403,10 @@ def energy(switches, links, ports_to_hosts, switch_off):
         used_ports[p] = 0
 
     count = 0
+
+    p = subprocess.Popen([sys.executable, './auto_traffic_emulator.py'], 
+                                    stdout=subprocess.PIPE, 
+                                    stderr=subprocess.STDOUT)
 
     energy_per_time = []
     switch_energy_per_time = {}
@@ -371,17 +455,9 @@ def energy(switches, links, ports_to_hosts, switch_off):
         # risultati finali??
         pass
 
-    fig, ax = plt.subplots()
-    ax.hlines(y=BASE_POWER, xmin=0, xmax=len(energy_per_time), color='r', linestyles='--', label='switch base power')
-    ax.hlines(y=BASE_POWER*len(switches), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
-    ax.plot(range(len(energy_per_time)), energy_per_time, color='blue', label='total')
-    switch_color = {'1':'steelblue', '2':'orchid', '3':'coral', '4':'gold', '5':'yellowgreen'}
-    for s in switch_energy_per_time.keys():
-        ax.plot(range(len(switch_energy_per_time[s])), switch_energy_per_time[s], color=switch_color[s], label=f's{s}')
-    ax.set(xlabel='time unit', ylabel='Power (W)', title='Power required by all switches in network over time')
-    plt.legend(loc="upper left")
-    ax.set_ylim(ymin=0)
-    plt.show()
+    instant_switch_throughput = compute_switch_throughput(active_switches)
+    plot_results(energy_per_time, switch_energy_per_time, instant_switch_throughput)
+    
 
 
 if __name__ == "__main__":

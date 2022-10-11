@@ -60,7 +60,13 @@ mininet_cmd("h2 iperf -c 10.0.0.4 -n 1000M -i2 &")
 time.sleep(4)
 mininet_cmd("h7 iperf -c 10.0.0.3 -n 800M -i2 &")
 
-time.sleep(20)
+time.sleep(7)
+
+mininet_cmd("srv iperf -c 10.0.0.1 -n 1500M -i2 &")
+
+time.sleep(5)
+
+mininet_cmd("srv iperf -c 10.0.0.6 -n 1500M -i2 &")
 
 mininet_cmd("h1 iperf -c 10.0.0.3 -n 10M -i2 &")
 time.sleep(1)
