@@ -3,6 +3,7 @@ import pycurl
 import json
 from io import BytesIO
 import re
+import matplotlib.pyplot as plt
 
 G = nx.Graph()
 
@@ -195,6 +196,9 @@ def bfs_stp():
         links[edge] = f"{p1},{p2}"
     # ==============================
 
+    nx.draw_networkx(G, with_labels=True)
+    plt.show()
+
     # ========== build a tree from the graphs so to break the loops ==========
     # each node/switch is given a value based on the connections to other switches
     # and number of connected hosts. The bfs tree will start from the node with the
@@ -210,6 +214,9 @@ def bfs_stp():
     # "optimized spanning tree"
     T = nx.bfs_tree(G,bfs_origin)
     new_links = list(T.edges())
+
+    nx.draw_networkx(T, with_labels=True)
+    plt.show()
 
     # shut unwanted links
     links = shut_links(links,new_links)
@@ -234,6 +241,9 @@ def bfs_stp():
         ports_to_hosts.append(port)
     
     network = T.to_undirected()
+
+    nx.draw_networkx(network, with_labels=True)
+    plt.show()
 
     #flows = []
     # now we can compute paths between each other host

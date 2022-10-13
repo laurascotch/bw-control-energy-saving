@@ -60,7 +60,7 @@ mininet_cmd("h2 iperf -c 10.0.0.4 -n 1000M -i2 &")
 time.sleep(4)
 mininet_cmd("h7 iperf -c 10.0.0.3 -n 800M -i2 &")
 
-time.sleep(7)
+time.sleep(17)
 
 mininet_cmd("srv iperf -c 10.0.0.1 -n 1500M -i2 &")
 
@@ -68,12 +68,26 @@ time.sleep(5)
 
 mininet_cmd("srv iperf -c 10.0.0.6 -n 1500M -i2 &")
 
-mininet_cmd("h1 iperf -c 10.0.0.3 -n 10M -i2 &")
+mininet_cmd("h1 iperf -c 10.0.0.3 -n 1300M -i2 &")
 time.sleep(1)
-mininet_cmd("h3 iperf -c 10.0.0.1 -n 500M -i2")
+mininet_cmd("h3 iperf -c 10.0.0.1 -n 250M -i2")
+mininet_cmd("srv iperf -c 10.0.0.6 -n 2500M -i2 &")
 
 time.sleep(34)
 
-mininet_cmd("h2 iperf -c 10.0.0.6 -n 10M -i2 &")
+mininet_cmd("h2 iperf -c 10.0.0.6 -n 100M -i2 &")
 time.sleep(1)
 mininet_cmd("h6 iperf -c 10.0.0.2 -n 850M -i2 &")
+
+time.sleep(5)
+
+mininet_cmd("srv iperf -c 10.0.0.1 -n 1500M -i2 &")
+
+time.sleep(5)
+
+mininet_cmd("srv iperf -c 10.0.0.6 -n 1500M -i2 &")
+
+mininet_cmd("h1 iperf -c 10.0.0.3 -n 1300M -i2 &")
+time.sleep(1)
+mininet_cmd("h3 iperf -c 10.0.0.1 -n 250M -i2")
+mininet_cmd("srv iperf -c 10.0.0.6 -n 2500M -i2 &")

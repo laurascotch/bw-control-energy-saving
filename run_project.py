@@ -22,8 +22,9 @@ BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
 SENSITIVITY = 675000 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps
-
-ANALYSIS_DURATION = 40
+ADAPTIVE_BITRATE = False # True per run ottimizzata
+DISABLE_UNUSED = False # True per run ottimizzata
+ANALYSIS_DURATION = 60
 
 def get_all_switches():
     b_obj = BytesIO()
@@ -387,15 +388,22 @@ def energy(switches, links, ports_to_hosts, switch_off):
     # set up
     #switches = get_all_switches()
     switched_off = switch_off
-    active_switches = [s for s in switches if s not in switched_off]
+    active_switches = []
+    if DISABLE_UNUSED:
+        active_switches = [s for s in switches if s not in switched_off]
+    else:
+        active_switches = switches
     switch_ports = get_switch_ports(switches)
     ports = get_all_ports(switches)
     active_links = links
     active_ports = []
-    for l,p in active_links.items():
-        p = p.split(',')
-        active_ports.append(p[0])
-    active_ports.extend(ports_to_hosts)
+    if DISABLE_UNUSED:
+        for l,p in active_links.items():
+            p = p.split(',')
+            active_ports.append(p[0])
+        active_ports.extend(ports_to_hosts)
+    else:
+        active_ports = ports
     #print(ports)
 
     # used_ports = {}
@@ -430,7 +438,8 @@ def energy(switches, links, ports_to_hosts, switch_off):
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
             working_ports = get_working_ports(active_switches,active_ports)
-            change_link_rate(working_ports,active_ports)
+            if ADAPTIVE_BITRATE:
+                change_link_rate(working_ports,active_ports)
             t_total_energy_required, t_switch_energy = get_instant_energy()
             #energy_per_time.append(t_total_energy_required + BASE_POWER*5)
             energy_per_time.append(t_total_energy_required + BASE_POWER*len(active_switches))
@@ -450,6 +459,8 @@ def energy(switches, links, ports_to_hosts, switch_off):
             print(info)
             print(switch_info)
             count += 1
+            if not ADAPTIVE_BITRATE:
+                time.sleep(0.7)
             time.sleep(0.8)
     except KeyboardInterrupt:
         # risultati finali??
@@ -480,6 +491,6 @@ if __name__ == "__main__":
     # run energy while checking for topology changes
     print("NETWORK READY")
     switches = get_all_switches()
-    initialize_qos(switches)
+    initialize_qos(switches, 1000)
     print("READY TO RUN ENERGY OPTIMIZATION SCRIPT")
     energy(switches, links, ports_to_hosts, switch_off)

@@ -2,7 +2,7 @@ import pycurl
 import json
 from io import BytesIO, StringIO
 
-def initialize_qos(switches):
+def initialize_qos(switches, bitrate):
     for s in switches:
         dpid = str(s).rjust(16, '0')
         data = '"tcp:127.0.0.1:6632"'
@@ -22,7 +22,8 @@ def initialize_qos(switches):
         crl = pycurl.Curl()
     
         url = f"http://localhost:8080/qos/queue/{dpid}"
-        data = json.dumps({"max_rate": "10000000", "queues": [{"max_rate": "10000000"}]})
+        mbps = bitrate * 1000000
+        data = json.dumps({"max_rate": str(mbps), "queues": [{"max_rate": str(mbps)}]})
 
         crl.setopt(pycurl.POST, 1)
         crl.setopt(crl.URL, url)
