@@ -21,10 +21,14 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-SENSITIVITY = 675000 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps
+INITIAL_SPEED = 100
+SENSITIVITY = 62500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
 ADAPTIVE_BITRATE = False # True per run ottimizzata
 DISABLE_UNUSED = False # True per run ottimizzata
+MAX_10G = True
 ANALYSIS_DURATION = 60
+
+DEBUG_LOG = True
 
 def get_all_switches():
     b_obj = BytesIO()
@@ -165,6 +169,8 @@ def check_flows():
 
 
 def get_ports_speed():
+    if DEBUG_LOG:
+        print("GET PORTS SPEED")
     b_obj = BytesIO()
     crl = pycurl.Curl()
 
@@ -211,8 +217,9 @@ def get_ports_speed():
     return ports_speed
 
 
-def get_working_ports(active_switches,active_ports):
-    print("GET WORKING PORTS")
+def get_working_ports(active_switches,active_ports, ports_speed):
+    if DEBUG_LOG:
+        print("GET WORKING PORTS")
 
     working_ports = []
 
@@ -244,7 +251,7 @@ def get_working_ports(active_switches,active_ports):
                 prev_port_bytes[port_name] = port_bytes
                 if port_name in active_ports:
                     #if port_bytes > (prev_port_bytes[port_name]+SENSITIVITY):
-                    if delta_bytes > SENSITIVITY:
+                    if delta_bytes > (SENSITIVITY * ports_speed[port_name]):
                         #prev_port_bytes[port_name] = port_bytes
                         working_ports.append(port_name)
     
@@ -252,49 +259,90 @@ def get_working_ports(active_switches,active_ports):
 
 
 #def change_link_rate(used_ports,working_ports):
-def change_link_rate(working_ports, active_ports):
-    print("CHANGE LINK RATE")
-    ports_speed = get_ports_speed()
+def change_link_rate(working_ports, active_ports, ports_speed):
+    if DEBUG_LOG:
+        print("CHANGE LINK RATE")
+    #ports_speed = get_ports_speed()
     for port in working_ports:
         used_ports[port] += 1
 
-    #print(used_ports)
-    print("CHANGE LINK RATE - got used ports")
+    if DEBUG_LOG:
+        print("CHANGE LINK RATE - got used ports")
+
+    urls = []
+    data = []
+    to_change = 0
     for port in used_ports.keys():
         if port in active_ports:
-            rate_mbps = 10
-            if used_ports[port] > 1:
+            #rate_mbps = 10
+            rate_mbps = INITIAL_SPEED
+            if used_ports[port] > 1 and INITIAL_SPEED<100:
                 rate_mbps = 100
-            if used_ports[port] > 3:
+            if used_ports[port] > 3 and INITIAL_SPEED<1000:
                 rate_mbps = 1000
-            if used_ports[port] > 6:
+            if used_ports[port] > 6 and MAX_10G:
                 rate_mbps = 10000
             if port not in working_ports:
                 used_ports[port] = 0
-                rate_mbps = 10
+                #rate_mbps = 10
+                rate_mbps = INITIAL_SPEED
+                rate_mbps = 0
 
             if ports_speed[port] != rate_mbps:
-                print("CHANGE LINK RATE - changing link rate")
+                if DEBUG_LOG:
+                    print("CHANGE LINK RATE - changing link rate")
                 crl = pycurl.Curl()
                 rate = str(rate_mbps * 1000 * 1000)
                 dpid = re.match("s(\d+)?-eth\d+",port)[1]
                 dpid = dpid.rjust(16, '0')
                 url = f"http://localhost:8080/qos/queue/{dpid}"
-                data = json.dumps({"port_name": port , "max_rate": "10000000000", "queues": [{"max_rate": rate }]})
+                d = json.dumps({"port_name": port , "max_rate": "10000000000", "queues": [{"max_rate": rate }]})
+                urls.append(url)
+                data.append(d)
+                to_change += 1
+                ports_speed[port] = float(rate_mbps)
+                '''
                 crl.setopt(pycurl.POST, 1)
                 crl.setopt(crl.URL, url)
-                crl.setopt(crl.POSTFIELDS, data)
+                crl.setopt(crl.POSTFIELDS, d)
                 crl.setopt(crl.WRITEFUNCTION, lambda x: None)
                 #crl.setopt(crl.VERBOSE, 1)
                 crl.perform()
                 crl.close()
-            
+                '''
+    # Pre-allocate a list of curl objects
+    m = pycurl.CurlMulti()
+    m.handles = []
+    for i in range(to_change):
+        c = pycurl.Curl()
+        c.fp = None
+        c.setopt(pycurl.POST, 1)
+        c.setopt(pycurl.URL, urls[i])
+        c.setopt(pycurl.POSTFIELDS, data[i])
+        c.setopt(pycurl.WRITEFUNCTION, lambda x: None)
+        m.add_handle(c)
+    
+    while 1:
+        ret, num_handles = m.perform()
+        if ret != pycurl.E_CALL_MULTI_PERFORM:
+            break
+    
+    # Cleanup
+    for c in m.handles:
+        if c.fp is not None:
+            c.fp.close()
+            c.fp = None
+        c.close()
+    m.close()
+    
+    return ports_speed
     
 
 
-def get_instant_energy():
-    print("GET INSTANT ENERGY")
-    ports_speed = get_ports_speed()
+def get_instant_energy(ports_speed):
+    if DEBUG_LOG:
+        print("GET INSTANT ENERGY")
+    #ports_speed = get_ports_speed()
     total_network_energy = 0
     switch_energy = {}
     for port in ports_speed.keys():
@@ -330,8 +378,9 @@ def compute_switch_throughput(active_switches):
         mbps = [x*8/1000000 for x in tmp]
         instant_switch_throughput[s] = mbps
 
-    for s,t in instant_switch_throughput.items():
-        print(f"{s} = {t}\n===")
+    if DEBUG_LOG:
+        for s,t in instant_switch_throughput.items():
+            print(f"{s} = {t}\n===")
     return instant_switch_throughput
 
 
@@ -339,14 +388,22 @@ def compute_switch_throughput(active_switches):
 
 def plot_results(energy_per_time, switch_energy_per_time, instant_switch_throughput):
 
+    datafile = open("result_log.txt", "w")
+    datafile.write(f"Simulation parameters:\nBase port bitrate: {INITIAL_SPEED} Mbps\nADAPTIVE_BITRATE = {ADAPTIVE_BITRATE}\nDISABLE_UNUSED = {DISABLE_UNUSED}\n10Gbps available = {MAX_10G}\nANALYSIS_DURATION = {ANALYSIS_DURATION}\n===\n")
+    
     plt.figure(1)
+    plt.hlines(y=sum(energy_per_time)/len(energy_per_time), xmin=0, xmax=len(energy_per_time), color='red', linestyles='--', label='average required power')
     plt.hlines(y=BASE_POWER*len(switches), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
     plt.plot(range(len(energy_per_time)), energy_per_time, color='blue', label='total')
     plt.xlabel("time unit")
     plt.ylabel("Power (W)")
     plt.title("Power required by all switches in network over time")
     plt.ylim(bottom=0)
-    plt.legend(loc="upper left")
+    plt.legend(loc="lower left")
+    datafile.write(f"AVERAGE POWER = {sum(energy_per_time)/len(energy_per_time)}\n")
+    datafile.write(f"ENERGY_PER_TIME = {energy_per_time}\n")
+    datafile.write(f"MINIMUM OPERATING POWER = {min(energy_per_time)}\n")
+    datafile.write(f"%_TIME_AT_MINIMUM_POWER = {round(energy_per_time.count(min(energy_per_time))/len(energy_per_time)*100)}\n")
 
     plt.figure(2)
     plt.hlines(y=BASE_POWER, xmin=0, xmax=len(energy_per_time), color='r', linestyles='--', label='switch base power')
@@ -360,13 +417,19 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     plt.legend(loc="lower right")
 
     plt.figure(3)
+    exchanged_bytes = 0
+    avg_switch_throughput = 0
     for s in instant_switch_throughput.keys():
         plt.plot(range(len(instant_switch_throughput[s])), instant_switch_throughput[s], color=switch_color[s], label=f's{s}')
+        avg_switch_throughput += ( sum(instant_switch_throughput[s]) / len(instant_switch_throughput[s]) )
+        exchanged_bytes += sum(instant_switch_throughput[s])
     plt.xlabel("time unit")
     plt.ylabel("Throughput (Mbps)")
-    plt.title("Instantaneous throughput of each switch")
+    plt.title(f"Instantaneous throughput of each switch\nAverage total data exchanged per switch: {round((avg_switch_throughput/5)/1000)}GB")
     plt.ylim(bottom=0)
     plt.legend(loc="lower right")
+    datafile.write(f"AVG_DATA_EXCHANGED_BY_EACH_SWITCH = {round(exchanged_bytes/1024/5)} GB\n")
+    datafile.close()
 
     plt.draw()
     plt.show()
@@ -437,15 +500,17 @@ def energy(switches, links, ports_to_hosts, switch_off):
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
-            working_ports = get_working_ports(active_switches,active_ports)
+            ports_speed = get_ports_speed()
+            working_ports = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
-                change_link_rate(working_ports,active_ports)
-            t_total_energy_required, t_switch_energy = get_instant_energy()
+                ports_speed = change_link_rate(working_ports,active_ports,ports_speed)
+            t_total_energy_required, t_switch_energy = get_instant_energy(ports_speed)
             #energy_per_time.append(t_total_energy_required + BASE_POWER*5)
+            print("ok")
             energy_per_time.append(t_total_energy_required + BASE_POWER*len(active_switches))
             
-            #info = f"t({count}): {t_total_energy_required+BASE_POWER*5} W | working ports: {working_ports}"
-            info = f"t({count}): {t_total_energy_required+BASE_POWER*len(active_switches)} W | working ports: {working_ports}"
+            #info = f"t({count}): {t_total_energy_required+BASE_POWER*len(active_switches)} W | working ports: {working_ports}"
+            info = f"working ports: {working_ports}"
             switch_info = ""
             for s, w in t_switch_energy.items():
                 if s not in switch_energy_per_time.keys():
@@ -456,12 +521,14 @@ def energy(switches, links, ports_to_hosts, switch_off):
                 else:
                     switch_info += f"| s{s}: {w+0} "
                     switch_energy_per_time[s].append(w + 0)
-            print(info)
-            print(switch_info)
+            print(f" - round {count} : {t_total_energy_required+BASE_POWER*len(active_switches)} W")
+            if DEBUG_LOG:
+                print(info)
+                print(switch_info)
             count += 1
             if not ADAPTIVE_BITRATE:
-                time.sleep(0.7)
-            time.sleep(0.8)
+                time.sleep(0.4)
+            time.sleep(0.4)
     except KeyboardInterrupt:
         # risultati finali??
         pass
@@ -491,6 +558,6 @@ if __name__ == "__main__":
     # run energy while checking for topology changes
     print("NETWORK READY")
     switches = get_all_switches()
-    initialize_qos(switches, 1000)
+    initialize_qos(switches, INITIAL_SPEED)
     print("READY TO RUN ENERGY OPTIMIZATION SCRIPT")
     energy(switches, links, ports_to_hosts, switch_off)
