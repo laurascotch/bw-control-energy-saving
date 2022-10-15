@@ -21,11 +21,13 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
+OUTPUT_NAME = "221015_01_"
+
 INITIAL_SPEED = 10
 SENSITIVITY = 62500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
 ADAPTIVE_BITRATE = True # True per run ottimizzata
 DISABLE_UNUSED = True # True per run ottimizzata
-MAX_10G = False
+MAX_10G = True
 ANALYSIS_DURATION = 60
 
 DEBUG_LOG = True
@@ -222,6 +224,7 @@ def get_working_ports(active_switches,active_ports, ports_speed):
         print("GET WORKING PORTS")
 
     working_ports = []
+    saturated = []
 
     for s in active_switches:
         switch = f"s{s}"
@@ -251,15 +254,17 @@ def get_working_ports(active_switches,active_ports, ports_speed):
                 prev_port_bytes[port_name] = port_bytes
                 if port_name in active_ports:
                     #if port_bytes > (prev_port_bytes[port_name]+SENSITIVITY):
-                    if delta_bytes > (SENSITIVITY * ports_speed[port_name]):
+                    if delta_bytes > (SENSITIVITY * 10):
                         #prev_port_bytes[port_name] = port_bytes
                         working_ports.append(port_name)
+                        if delta_bytes > (SENSITIVITY * ports_speed[port_name]):
+                            saturated.append(port_name)
     
-    return working_ports
+    return working_ports, saturated
 
 
 #def change_link_rate(used_ports,working_ports):
-def change_link_rate(working_ports, active_ports, ports_speed):
+def change_link_rate(working_ports, saturated, active_ports, ports_speed):
     if DEBUG_LOG:
         print("CHANGE LINK RATE")
     #ports_speed = get_ports_speed()
@@ -276,12 +281,13 @@ def change_link_rate(working_ports, active_ports, ports_speed):
         if port in active_ports:
             #rate_mbps = 10
             rate_mbps = INITIAL_SPEED
-            if used_ports[port] > 1 and INITIAL_SPEED<100:
-                rate_mbps = 100
-            if used_ports[port] > 3 and INITIAL_SPEED<1000:
-                rate_mbps = 1000
-            if used_ports[port] > 6 and MAX_10G:
-                rate_mbps = 10000
+            if port in saturated:
+                if used_ports[port] > 1 and INITIAL_SPEED<100:
+                    rate_mbps = 100
+                if used_ports[port] > 3 and INITIAL_SPEED<1000:
+                    rate_mbps = 1000
+                if used_ports[port] > 6 and MAX_10G:
+                    rate_mbps = 10000
             if port not in working_ports:
                 used_ports[port] = 0
                 #rate_mbps = 10
@@ -388,7 +394,7 @@ def compute_switch_throughput(active_switches):
 
 def plot_results(energy_per_time, switch_energy_per_time, instant_switch_throughput):
 
-    datafile = open("result_log.txt", "w")
+    datafile = open(f"tests/{OUTPUT_NAME}_LOG.txt", "w")
     datafile.write(f"Simulation parameters:\nBase port bitrate: {INITIAL_SPEED} Mbps\nADAPTIVE_BITRATE = {ADAPTIVE_BITRATE}\nDISABLE_UNUSED = {DISABLE_UNUSED}\n10Gbps available = {MAX_10G}\nANALYSIS_DURATION = {ANALYSIS_DURATION}\n===\n")
     
     plt.figure(1)
@@ -404,6 +410,7 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     datafile.write(f"ENERGY_PER_TIME = {energy_per_time}\n")
     datafile.write(f"MINIMUM OPERATING POWER = {min(energy_per_time)}\n")
     datafile.write(f"%_TIME_AT_MINIMUM_POWER = {round(energy_per_time.count(min(energy_per_time))/len(energy_per_time)*100)}\n")
+    plt.savefig(f"tests/{OUTPUT_NAME}_TOTAL.png")
 
     plt.figure(2)
     plt.hlines(y=BASE_POWER, xmin=0, xmax=len(energy_per_time), color='r', linestyles='--', label='switch base power')
@@ -415,6 +422,9 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     plt.title("Power required by each switch in network over time")
     plt.ylim(bottom=0)
     plt.legend(loc="lower right")
+    plt.savefig(f"tests/{OUTPUT_NAME}_SWITCH.png")
+
+# instant_switch_throughput è un dizionario '1':[T_t(0), T_t(1), ...], '2' = [...]
 
     plt.figure(3)
     exchanged_bytes = 0
@@ -428,24 +438,39 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     plt.title(f"Instantaneous throughput of each switch\nAverage total data exchanged per switch: {round((avg_switch_throughput/5)/1000, 2)}GB")
     plt.ylim(bottom=0)
     plt.legend(loc="lower right")
-    datafile.write(f"AVG_DATA_EXCHANGED_BY_EACH_SWITCH = {round(exchanged_bytes/1024/5)} GB\n")
-    datafile.close()
+    datafile.write(f"AVG_SWITCH_THROUGHPUT = {round((avg_switch_throughput/5)/1000, 2)} GB\n")
+    plt.savefig(f"tests/{OUTPUT_NAME}_USAGE.png")
+
+    instant_switches_throughput = []
+    tmp = []
+    for s,l in instant_switch_throughput.items():
+        tmp.append(l)
+    for i in range(len(tmp[0])):
+        t = sum([x[i] for x in tmp])
+        if t == 0:
+            t = float("NaN")
+        else:
+            t = t/1000
+        instant_switches_throughput.append(t)
+    watt_per_gigabyte = [x/y for (x,y) in zip(energy_per_time,instant_switches_throughput)]
+
+    plt.figure(4)
+    plt.plot(range(len(watt_per_gigabyte)), watt_per_gigabyte, color='orange', label='total')
+    plt.yscale('log')
+    plt.xlabel("time unit")
+    plt.ylabel("Power (W) per GigaByte (GB)")
+    plt.title("Overall Power per GigaByte over time")
+    plt.ylim(bottom=0)
+    plt.legend(loc="lower left")
+    datafile.write(f"INSTANT_WATT_PER_GB = {watt_per_gigabyte}\n")
+    datafile.write(f"AVG_WATT_PER_GB = {(sum(energy_per_time)/len(energy_per_time))/((avg_switch_throughput/5)/1000)}")
+    plt.savefig(f"tests/{OUTPUT_NAME}_MEASURE.png")
 
     plt.draw()
     plt.show()
-'''
-    fig, ax = plt.subplots()
-    ax.hlines(y=BASE_POWER, xmin=0, xmax=len(energy_per_time), color='r', linestyles='--', label='switch base power')
-    ax.hlines(y=BASE_POWER*len(switches), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
-    ax.plot(range(len(energy_per_time)), energy_per_time, color='blue', label='total')
-    switch_color = {'1':'steelblue', '2':'orchid', '3':'coral', '4':'gold', '5':'yellowgreen'}
-    for s in switch_energy_per_time.keys():
-        ax.plot(range(len(switch_energy_per_time[s])), switch_energy_per_time[s], color=switch_color[s], label=f's{s}')
-    ax.set(xlabel='time unit', ylabel='Power (W)', title='Power required by all switches in network over time')
-    plt.legend(loc="upper left")
-    ax.set_ylim(ymin=0)
-    plt.show()
-'''
+    datafile.close()
+
+
 
 def energy(switches, links, ports_to_hosts, switch_off):
     # set up
@@ -501,9 +526,9 @@ def energy(switches, links, ports_to_hosts, switch_off):
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
             ports_speed = get_ports_speed()
-            working_ports = get_working_ports(active_switches,active_ports,ports_speed)
+            working_ports, saturated = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
-                ports_speed = change_link_rate(working_ports,active_ports,ports_speed)
+                ports_speed = change_link_rate(working_ports,saturated,active_ports,ports_speed)
             t_total_energy_required, t_switch_energy = get_instant_energy(ports_speed)
             #energy_per_time.append(t_total_energy_required + BASE_POWER*5)
             print("ok")
@@ -527,8 +552,8 @@ def energy(switches, links, ports_to_hosts, switch_off):
                 print(switch_info)
             count += 1
             if not ADAPTIVE_BITRATE:
-                time.sleep(1.1)
-            time.sleep(0.4)
+                time.sleep(1.6)
+            time.sleep(0.3)
     except KeyboardInterrupt:
         # risultati finali??
         pass
