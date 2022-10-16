@@ -21,16 +21,16 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-OUTPUT_NAME = "221015_01_"
+OUTPUT_NAME = "221016_04_"
 
-INITIAL_SPEED = 10
+INITIAL_SPEED = 1000
 SENSITIVITY = 62500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
-ADAPTIVE_BITRATE = True # True per run ottimizzata
-DISABLE_UNUSED = True # True per run ottimizzata
-MAX_10G = True
+ADAPTIVE_BITRATE = False # True per run ottimizzata
+DISABLE_UNUSED = False # True per run ottimizzata
+MAX_10G = False
 ANALYSIS_DURATION = 60
 
-DEBUG_LOG = True
+DEBUG_LOG = False
 
 def get_all_switches():
     b_obj = BytesIO()
@@ -120,9 +120,35 @@ def get_switch_ports(switches):
             #prev_port_pkt_count[f"{switch_name}-eth{i}"] = 0
             prev_port_bytes[f"{switch_name}-eth{i}"] = 0
             delta_port_bytes[f"{switch_name}-eth{i}"] = [0]
-            for j in tmp2:
+
+        for s in switches:
+            switch = f"s{s}"
+
+            curl = pycurl.Curl()
+            byte_response = BytesIO()
+
+            url=f"http://127.0.0.1:8080/stats/port/{str(s)}"
+
+            curl.setopt(curl.CUSTOMREQUEST, 'GET')
+            curl.setopt(curl.URL, url)
+            #curl.setopt(curl.VERBOSE, 1)
+            curl.setopt(curl.WRITEDATA, byte_response)
+
+            curl.perform()
+            curl.close()
+
+            get_body = byte_response.getvalue()
+            json_port = json.loads(get_body.decode('utf8'))
+            port_stats = json_port[f'{s}']
+            for stats in port_stats:
+                if stats['port_no'] != 'LOCAL':
+                    port_name = f"{switch}-eth{stats['port_no']}"
+                    port_bytes = stats['rx_bytes'] + stats['tx_bytes']
+                    prev_port_bytes[port_name] = port_bytes
+
+            #for j in tmp2:
                 #previous_pkt_count[f"{switch_name}-{i}-{j}"] = 0
-                previous_bytes[f"{switch_name}-{i}-{j}"] = 0
+            #    previous_bytes[f"{switch_name}-{i}-{j}"] = 0
     
     return switch_ports
 
@@ -404,7 +430,7 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     plt.xlabel("time unit")
     plt.ylabel("Power (W)")
     plt.title("Power required by all switches in network over time")
-    plt.ylim(bottom=0)
+    plt.ylim(bottom=0, top=max(energy_per_time)*1.1)
     plt.legend(loc="lower left")
     datafile.write(f"AVERAGE POWER = {sum(energy_per_time)/len(energy_per_time)}\n")
     datafile.write(f"ENERGY_PER_TIME = {energy_per_time}\n")
@@ -460,10 +486,10 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     plt.xlabel("time unit")
     plt.ylabel("Power (W) per GigaByte (GB)")
     plt.title("Overall Power per GigaByte over time")
-    plt.ylim(bottom=0)
+    plt.xlim(left=0, right=len(watt_per_gigabyte))
     plt.legend(loc="lower left")
     datafile.write(f"INSTANT_WATT_PER_GB = {watt_per_gigabyte}\n")
-    datafile.write(f"AVG_WATT_PER_GB = {(sum(energy_per_time)/len(energy_per_time))/((avg_switch_throughput/5)/1000)}")
+    datafile.write(f"AVG_WATT_PER_GB = {(sum(energy_per_time)/len(energy_per_time))/(avg_switch_throughput/1000)}")
     plt.savefig(f"tests/{OUTPUT_NAME}_MEASURE.png")
 
     plt.draw()
@@ -552,8 +578,8 @@ def energy(switches, links, ports_to_hosts, switch_off):
                 print(switch_info)
             count += 1
             if not ADAPTIVE_BITRATE:
-                time.sleep(1.6)
-            time.sleep(0.3)
+                time.sleep(3.7)
+            time.sleep(0.4)
     except KeyboardInterrupt:
         # risultati finali??
         pass
