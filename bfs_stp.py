@@ -126,7 +126,7 @@ def switch_off_unrouted(switch_off, links):
     for l in links_to_delete:
         del links[l]
     
-    return links
+    return links, links_to_delete
 
 
 def shut_links(links,new_links):
@@ -196,9 +196,6 @@ def bfs_stp():
         links[edge] = f"{p1},{p2}"
     # ==============================
 
-    nx.draw_networkx(G, with_labels=True)
-    plt.show()
-
     # ========== build a tree from the graphs so to break the loops ==========
     # each node/switch is given a value based on the connections to other switches
     # and number of connected hosts. The bfs tree will start from the node with the
@@ -215,9 +212,6 @@ def bfs_stp():
     T = nx.bfs_tree(G,bfs_origin)
     new_links = list(T.edges())
 
-    nx.draw_networkx(T, with_labels=True)
-    plt.show()
-
     # shut unwanted links
     links = shut_links(links,new_links)
 
@@ -225,24 +219,69 @@ def bfs_stp():
     # let's find them:
     switch_off = [x for x in T.nodes() if T.out_degree(x)==0 and host_per_switch[x]==0]
     # to do: disable all ports of the found switches
-    links = switch_off_unrouted(switch_off, links)
+    links, remove_edges = switch_off_unrouted(switch_off, links)
+    for e in remove_edges:
+        m = re.match("s(\d+)?,s(\d+)?",e)
+        e1 = (m[1],m[2])
+        e2 = (m[2],m[1])
+        if e1 in T.edges():
+            T.remove_edge(*e1)
+        if e2 in T.edges():
+            T.remove_edge(*e2)
     # ==============================
-
+    original_network = G.to_undirected()
     # ========== populate the tree graph with hosts and compute flows ==========
     hosts = []
     ports_to_hosts = []
+    edges_to_hosts = []
     for port,host in sw_hosts.items():
         m = re.match("s(\d+)?-eth(\d+)?",port)
         s = m[1]
         p = m[2]
         hosts.append(host)
+        e = (s,host)
+        edges_to_hosts.append(e)
         T.add_node(host)
         T.add_edge(s,host)
+        original_network.add_node(host)
+        original_network.add_edge(s,host)
         ports_to_hosts.append(port)
     
     network = T.to_undirected()
 
-    nx.draw_networkx(network, with_labels=True)
+    edges = original_network.edges()
+    stp_edges = network.edges()
+    node_colors = []
+    for n in original_network.nodes():
+        if n in switch_off:
+            node_colors.append('slategrey')
+            continue
+        if n in hosts:
+            node_colors.append('lightblue')
+            continue
+        node_colors.append('tab:blue')
+        
+    colors = []
+    weights = []
+    labels = {}
+    for n in original_network.nodes():
+        if n in hosts:
+            labels[n] = ''
+        else:
+            labels[n]=n
+    for e in edges:
+        if e in edges_to_hosts:
+            colors.append('c')
+            weights.append(2)
+            continue
+        if e in stp_edges:
+            colors.append('b')
+            weights.append(4)
+            continue
+        colors.append('k')
+        weights.append(1)
+        
+    nx.draw(original_network, edgelist=edges, edge_color=colors, width=weights, node_color=node_colors, labels=labels, with_labels=True)
     plt.show()
 
     #flows = []

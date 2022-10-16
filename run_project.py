@@ -4,7 +4,7 @@ from io import BytesIO
 import time
 import re
 import matplotlib.pyplot as plt
-from bfs_stp import bfs_stp, detect_loops
+from bfs_stp import bfs_stp
 from initialize_qos import initialize_qos
 from reset_flows import clean_flows
 import sys
@@ -21,13 +21,13 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-OUTPUT_NAME = "221016_04_"
+OUTPUT_NAME = "221016_RING_01_"
 
-INITIAL_SPEED = 1000
+INITIAL_SPEED = 10
 SENSITIVITY = 62500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
-ADAPTIVE_BITRATE = False # True per run ottimizzata
-DISABLE_UNUSED = False # True per run ottimizzata
-MAX_10G = False
+ADAPTIVE_BITRATE = True # True per run ottimizzata
+DISABLE_UNUSED = True # True per run ottimizzata
+MAX_10G = True
 ANALYSIS_DURATION = 60
 
 DEBUG_LOG = False
@@ -407,7 +407,7 @@ def compute_switch_throughput(active_switches):
     
     for s in instant_switch_throughput.keys():
         tmp = instant_switch_throughput[s]
-        mbps = [x*8/1000000 for x in tmp]
+        mbps = [(x*8/1000000)/2 for x in tmp]   # /2 perché se no conto il throughput doppio perché conto l'ingresso in una porta e l'uscita in un'altra porta (che però è lo stesso traffico)
         instant_switch_throughput[s] = mbps
 
     if DEBUG_LOG:
@@ -461,7 +461,7 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
         exchanged_bytes += sum(instant_switch_throughput[s])
     plt.xlabel("time unit")
     plt.ylabel("Throughput (Mbps)")
-    plt.title(f"Instantaneous throughput of each switch\nAverage total data exchanged per switch: {round((avg_switch_throughput/5)/1000, 2)}GB")
+    plt.title(f"Instantaneous throughput of each switch\nAverage throughput per switch: {round((avg_switch_throughput/5)/1000, 2)}GB")
     plt.ylim(bottom=0)
     plt.legend(loc="lower right")
     datafile.write(f"AVG_SWITCH_THROUGHPUT = {round((avg_switch_throughput/5)/1000, 2)} GB\n")
