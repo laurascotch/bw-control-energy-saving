@@ -21,13 +21,13 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-OUTPUT_NAME = "221016_RING_01_"
+OUTPUT_NAME = "221016_04_"
 
 INITIAL_SPEED = 10
-SENSITIVITY = 62500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
+SENSITIVITY = 67500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
 ADAPTIVE_BITRATE = True # True per run ottimizzata
 DISABLE_UNUSED = True # True per run ottimizzata
-MAX_10G = True
+MAX_10G = False
 ANALYSIS_DURATION = 60
 
 DEBUG_LOG = False
@@ -397,6 +397,8 @@ def compute_switch_throughput(active_switches):
         #port_name = f"{switch}-eth{stats['port_no']}"
         m = re.match("s(\d+)?-eth(\d+)?", p)
         s_id = m[1]
+        if int(s_id) not in active_switches:
+            continue
         if s_id not in instant_switch_throughput.keys():
             instant_switch_throughput[s_id] = dt
         else:
@@ -457,14 +459,14 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     avg_switch_throughput = 0
     for s in instant_switch_throughput.keys():
         plt.plot(range(len(instant_switch_throughput[s])), instant_switch_throughput[s], color=switch_color[s], label=f's{s}')
-        avg_switch_throughput += ( sum(instant_switch_throughput[s]) / len(instant_switch_throughput[s]) )
+        avg_switch_throughput += ( sum(instant_switch_throughput[s]) / len([x for x in instant_switch_throughput[s] if x != 0]) )
         exchanged_bytes += sum(instant_switch_throughput[s])
     plt.xlabel("time unit")
     plt.ylabel("Throughput (Mbps)")
-    plt.title(f"Instantaneous throughput of each switch\nAverage throughput per switch: {round((avg_switch_throughput/5)/1000, 2)}GB")
+    plt.title(f"Instantaneous throughput of each switch\nAverage throughput per switch: {round((avg_switch_throughput/len(instant_switch_throughput.keys()))/1000, 2)}GB")
     plt.ylim(bottom=0)
     plt.legend(loc="lower right")
-    datafile.write(f"AVG_SWITCH_THROUGHPUT = {round((avg_switch_throughput/5)/1000, 2)} GB\n")
+    datafile.write(f"AVG_SWITCH_THROUGHPUT = {round((avg_switch_throughput/len(instant_switch_throughput.keys()))/1000, 2)} GB\n")
     plt.savefig(f"tests/{OUTPUT_NAME}_USAGE.png")
 
     instant_switches_throughput = []
@@ -501,10 +503,10 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
 def energy(switches, links, ports_to_hosts, switch_off):
     # set up
     #switches = get_all_switches()
-    switched_off = switch_off
+    switched_off = switch_off # contiene str
     active_switches = []
     if DISABLE_UNUSED:
-        active_switches = [s for s in switches if s not in switched_off]
+        active_switches = [s for s in switches if str(s) not in switched_off] #active_switches contiene int, switches contiene int
     else:
         active_switches = switches
     switch_ports = get_switch_ports(switches)
@@ -552,6 +554,7 @@ def energy(switches, links, ports_to_hosts, switch_off):
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
             ports_speed = get_ports_speed()
+
             working_ports, saturated = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
                 ports_speed = change_link_rate(working_ports,saturated,active_ports,ports_speed)

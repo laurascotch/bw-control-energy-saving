@@ -15,10 +15,16 @@ def ampersand(): #pydirectinput non conosce &
     pydirectinput.press('6')
     pydirectinput.keyUp('shift')
 
+def trattinobasso():
+    pydirectinput.keyDown('shift')
+    pydirectinput.press("-")
+    pydirectinput.keyUp('shift')
+
 
 def mininet_cmd(command):
     # pydirectinput inserisce input da tastiera inglese, quindi quello che per lui è /, per me è -
     command = command.replace('-', '/')
+    #command = command.replace('_', '?')
     
     for i in range(len(command)):
         if command[i].isupper():
@@ -28,6 +34,9 @@ def mininet_cmd(command):
             continue
         if command[i] == '&':
             ampersand()
+            continue
+        if command[i] == '_':
+            trattinobasso()
             continue
         pydirectinput.press(command[i])
 
@@ -45,8 +54,9 @@ except gw.PyGetWindowException:
 
 time.sleep(1)
 pydirectinput.press('enter')
-
-
+mininet_cmd("source shpy.py")
+pydirectinput.press('enter')
+'''
 time.sleep(4)
 mininet_cmd("h1 iperf -c 10.0.0.100 -n 10M -i2 &")
 
@@ -91,3 +101,4 @@ mininet_cmd("h1 iperf -c 10.0.0.3 -n 1300M -i2 &")
 time.sleep(1)
 mininet_cmd("h3 iperf -c 10.0.0.1 -n 250M -i2 &")
 mininet_cmd("srv iperf -c 10.0.0.5 -n 2500M -i2 &")
+'''
