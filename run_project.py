@@ -21,9 +21,9 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-OUTPUT_NAME = "221016_R01_04_"
+OUTPUT_NAME = "221016_R02_044_"
 
-INITIAL_SPEED = 10
+INITIAL_SPEED = 100
 SENSITIVITY = 67500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
 ADAPTIVE_BITRATE = True # True per run ottimizzata
 DISABLE_UNUSED = True # True per run ottimizzata
@@ -419,7 +419,7 @@ def plot_results(energy_per_time, switch_energy_per_time, instant_switch_through
     
     plt.figure(1)
     plt.hlines(y=sum(energy_per_time)/len(energy_per_time), xmin=0, xmax=len(energy_per_time), color='red', linestyles='--', label='average required power')
-    plt.hlines(y=BASE_POWER*len(switches), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
+    plt.hlines(y=BASE_POWER*len(instant_switch_throughput.keys()), xmin=0, xmax=len(energy_per_time), color='lightcoral', linestyles='--', label='total network base power')
     plt.plot(range(len(energy_per_time)), energy_per_time, color='blue', label='total')
     plt.xlabel("time unit")
     plt.ylabel("Power (W)")
