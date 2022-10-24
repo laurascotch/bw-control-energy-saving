@@ -522,6 +522,8 @@ def energy(switches, links, ports_to_hosts, switch_off):
 
     count = 0
 
+    ports_speed = get_ports_speed()
+
     p = subprocess.Popen([sys.executable, './auto_traffic_emulator.py'], 
                                     stdout=subprocess.PIPE, 
                                     stderr=subprocess.STDOUT)
@@ -543,11 +545,12 @@ def energy(switches, links, ports_to_hosts, switch_off):
                 switched_off = switch_off
                 active_switches = [s for s in switches if s not in switched_off]
                 clean_flows(switches)
+                ports_speed = get_ports_speed()
             '''
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
-            ports_speed = get_ports_speed()     # cambiare... non mi serve pescare ports_speed ogni volta: è CONCETTUALMENTE sbagliato perché è un dato del digital twin
+#            ports_speed = get_ports_speed()     # cambiare... non mi serve pescare ports_speed ogni volta: è CONCETTUALMENTE sbagliato perché è un dato del digital twin
 
             working_ports, saturated = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
