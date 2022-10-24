@@ -234,6 +234,7 @@ def get_ports_speed():
                     crl.close()
                     get_body = b_obj.getvalue()
                     port_data = json.loads(get_body.decode('utf8'))
+                    prev_id = s_id
                 speed = switch_ports[port]['0']['config']['max-rate']
                 for info in port_data[s_id]:
                     if info['name'] == port:
@@ -546,7 +547,7 @@ def energy(switches, links, ports_to_hosts, switch_off):
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
-            ports_speed = get_ports_speed()
+            ports_speed = get_ports_speed()     # cambiare... non mi serve pescare ports_speed ogni volta: è CONCETTUALMENTE sbagliato perché è un dato del digital twin
 
             working_ports, saturated = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
