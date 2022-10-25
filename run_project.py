@@ -21,13 +21,13 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-OUTPUT_NAME = "221016_R02_044_"
+OUTPUT_NAME = "TEST"
 
-INITIAL_SPEED = 100
+INITIAL_SPEED = 10
 SENSITIVITY = 67500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
 ADAPTIVE_BITRATE = True # True per run ottimizzata
 DISABLE_UNUSED = True # True per run ottimizzata
-MAX_10G = False
+MAX_10G = True
 ANALYSIS_DURATION = 60
 
 DEBUG_LOG = False
@@ -220,10 +220,11 @@ def get_ports_speed():
         if entry['command_result']['result'] == 'success':
             switch_ports = entry['command_result']['details']
             port_names = switch_ports.keys()
+            port_data = ''
             for port in port_names:
                 m = re.match("s(\d+)?-eth(\d+)?",port)
                 s_id = m[1]
-                port_data = ''
+#                port_data = ''
                 if s_id != prev_id:
                     b_obj = BytesIO()
                     crl = pycurl.Curl()
@@ -234,7 +235,6 @@ def get_ports_speed():
                     crl.close()
                     get_body = b_obj.getvalue()
                     port_data = json.loads(get_body.decode('utf8'))
-                    prev_id = s_id
                 speed = switch_ports[port]['0']['config']['max-rate']
                 for info in port_data[s_id]:
                     if info['name'] == port:
@@ -522,14 +522,14 @@ def energy(switches, links, ports_to_hosts, switch_off):
 
     count = 0
 
-    ports_speed = get_ports_speed()
-
     p = subprocess.Popen([sys.executable, './auto_traffic_emulator.py'], 
                                     stdout=subprocess.PIPE, 
                                     stderr=subprocess.STDOUT)
 
     energy_per_time = []
     switch_energy_per_time = {}
+
+    #ports_speed = get_ports_speed()
 
     try:
         while(count <= ANALYSIS_DURATION):
@@ -545,12 +545,11 @@ def energy(switches, links, ports_to_hosts, switch_off):
                 switched_off = switch_off
                 active_switches = [s for s in switches if s not in switched_off]
                 clean_flows(switches)
-                ports_speed = get_ports_speed()
             '''
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
-#            ports_speed = get_ports_speed()     # cambiare... non mi serve pescare ports_speed ogni volta: è CONCETTUALMENTE sbagliato perché è un dato del digital twin
+            ports_speed = get_ports_speed()
 
             working_ports, saturated = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
