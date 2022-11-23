@@ -21,14 +21,14 @@ power_per_intf = {'0.0':0, '10.0':0.1, '100.0':0.2, '1000.0':0.5, '10000.0':5.0}
 BASE_POWER = 20
 used_ports = {}     # keeps track of whether a packet flow is going through a certain port over time
 
-OUTPUT_NAME = "TEST"
+OUTPUT_NAME = "RING_NEAR_"
 
 INITIAL_SPEED = 10
-SENSITIVITY = 67500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
+SENSITIVITY = 62500 # bytes per time unit that triggers the sensing of port usage - 1,250,000 is the Bps of 10Mbps, 125000 is the Bps of 1Mbps
 ADAPTIVE_BITRATE = True # True per run ottimizzata
 DISABLE_UNUSED = True # True per run ottimizzata
-MAX_10G = True
-ANALYSIS_DURATION = 60
+MAX_10G = False
+ANALYSIS_DURATION = 30
 
 DEBUG_LOG = False
 
@@ -319,7 +319,7 @@ def change_link_rate(working_ports, saturated, active_ports, ports_speed):
                 used_ports[port] = 0
                 #rate_mbps = 10
                 rate_mbps = INITIAL_SPEED
-                rate_mbps = 0
+                #rate_mbps = 0
 
             if ports_speed[port] != rate_mbps:
                 if DEBUG_LOG:
@@ -549,7 +549,7 @@ def energy(switches, links, ports_to_hosts, switch_off):
             # TO DO: ottimizzare automaticamente velocità porte
             # usando questa funzione qui per vedere quali stanno lavorando
             #working_ports = get_working_ports(switches)
-            ports_speed = get_ports_speed()
+            ports_speed = get_ports_speed() # è concettualmente sbagliato averlo qui, ma fuori dal loop non funziona...
 
             working_ports, saturated = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
@@ -578,7 +578,7 @@ def energy(switches, links, ports_to_hosts, switch_off):
             count += 1
             if not ADAPTIVE_BITRATE:
                 time.sleep(3.7)
-            time.sleep(0.4)
+            time.sleep(0.3)
     except KeyboardInterrupt:
         # risultati finali??
         pass
