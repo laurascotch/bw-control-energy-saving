@@ -67,7 +67,7 @@ Since a generic mesh topology will be used as testbed, it is necessary to break 
 
 The execution of the BFS-ST allows for the first definition of the interfaces’ status: they are now either in `disabled` or `idle` state. The status of an `idle` interface may change to `working` or `saturated` during the execution of the D.T. The difference between `working` and `saturated` is that a saturated port is a port that is working above a certain threshold of traffic volume.
 
-Such threshold is defined as $\text{SENSITIVITY} \cdot \text{port\_speed}$ where *SENSITIVITY* is a percentage decided a priori of the amount of traffic exchanged in a time unit at 1Mbps. E.g. if the digital twin time unit lasts 1 second and it is decided that if the link is half full , it needs more bitrate, the sensitivity will be 62500 B (50% of 1Mbps in 1s).
+Such threshold is defined as $\text{SENSITIVITY} \cdot \text{port-speed}$ where *SENSITIVITY* is a percentage decided a priori of the amount of traffic exchanged in a time unit at 1Mbps. E.g. if the digital twin time unit lasts 1 second and it is decided that if the link is half full , it needs more bitrate, the sensitivity will be 62500 B (50% of 1Mbps in 1s).
 
 The status of the port, updated at each time unit based on the traffic monitoring, together with the amount of time a port has been in that status, determine if its bit rate must be changed.
 
