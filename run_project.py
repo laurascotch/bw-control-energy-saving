@@ -6,7 +6,6 @@ import re
 import matplotlib.pyplot as plt
 from bfs_stp import bfs_stp
 from initialize_qos import initialize_qos
-from reset_flows import clean_flows
 import sys
 import subprocess
 
@@ -514,7 +513,6 @@ def energy(switches, links, ports_to_hosts, switch_off):
         active_ports.extend(ports_to_hosts)
     else:
         active_ports = ports
-    #print(ports)
 
     # used_ports = {}
     for p in ports:
@@ -522,9 +520,8 @@ def energy(switches, links, ports_to_hosts, switch_off):
 
     count = 0
 
-    p = subprocess.Popen([sys.executable, './auto_traffic_emulator.py'], 
-                                    stdout=subprocess.PIPE, 
-                                    stderr=subprocess.STDOUT)
+    # COMMENTAMI SE VUOI GIOCARE COL TRAFFICO
+    p = subprocess.Popen([sys.executable, './auto_traffic_emulator.py'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     energy_per_time = []
     switch_energy_per_time = {}
@@ -534,32 +531,16 @@ def energy(switches, links, ports_to_hosts, switch_off):
     try:
         while(count <= ANALYSIS_DURATION):
             # TO DO: check if new run of STP is needed
-            '''
-            actual_links = get_links()
-            if actual_links == active_links:
-                print("LINKS ARE THE SAME")
-            else:
-                print("UPDATE NETWORK")
-                time.sleep(2)
-                active_links, switch_off = detect_loops(switches, net_graph)
-                switched_off = switch_off
-                active_switches = [s for s in switches if s not in switched_off]
-                clean_flows(switches)
-            '''
-            # TO DO: ottimizzare automaticamente velocità porte
-            # usando questa funzione qui per vedere quali stanno lavorando
-            #working_ports = get_working_ports(switches)
+            
             ports_speed = get_ports_speed() # è concettualmente sbagliato averlo qui, ma fuori dal loop non funziona...
 
             working_ports, saturated = get_working_ports(active_switches,active_ports,ports_speed)
             if ADAPTIVE_BITRATE:
                 ports_speed = change_link_rate(working_ports,saturated,active_ports,ports_speed)
             t_total_energy_required, t_switch_energy = get_instant_energy(ports_speed)
-            #energy_per_time.append(t_total_energy_required + BASE_POWER*5)
-            print("ok")
+
             energy_per_time.append(t_total_energy_required + BASE_POWER*len(active_switches))
             
-            #info = f"t({count}): {t_total_energy_required+BASE_POWER*len(active_switches)} W | working ports: {working_ports}"
             info = f"working ports: {working_ports}"
             switch_info = ""
             for s, w in t_switch_energy.items():
@@ -580,7 +561,7 @@ def energy(switches, links, ports_to_hosts, switch_off):
                 time.sleep(3.7)
             time.sleep(0.3)
     except KeyboardInterrupt:
-        # risultati finali??
+        # non funziona se hai sfiga e interrompi con Ctrl+C mentre è a metà di una richiesta con cURL...
         pass
 
     instant_switch_throughput = compute_switch_throughput(active_switches)
@@ -604,8 +585,6 @@ if __name__ == "__main__":
         print(".")
         time.sleep(5)
         flows = check_flows()
-    # run initial_setup.py
-    # run energy while checking for topology changes
     print("NETWORK READY")
     switches = get_all_switches()
     initialize_qos(switches, INITIAL_SPEED)
