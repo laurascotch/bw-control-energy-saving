@@ -1,6 +1,6 @@
 # Network Digital Twin: bandwidth control for energy saving
 
-This project is the subject of the final dissertation for the MSc in Computer Science at University of Trento, Italy.
+This project is the subject of the [final dissertation](./endgame/Laura_Scoccianti_Master_Thesis.pdf) for the MSc in Computer Science at University of Trento, Italy.
 
 The final elaborate is titled “***Implementing and running the Digital Twin of a network for energy consumption monitoring and optimization***” and covers three main topics:
 
